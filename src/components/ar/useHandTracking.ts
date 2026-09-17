@@ -19,6 +19,7 @@ export function useHandTracking(onSwipeDown: () => void) {
   const rafRef = useRef<number | null>(null);
   const trackRef = useRef<Array<{ t: number; y: number }>>([]);
   const fingerTrackRef = useRef<Array<{ t: number; y: number }>>([]);
+  const relTrackRef = useRef<Array<{ t: number; y: number }>>([]);
   const lastSwipeRef = useRef(0);
   const swipeCbRef = useRef(onSwipeDown);
   swipeCbRef.current = onSwipeDown;
