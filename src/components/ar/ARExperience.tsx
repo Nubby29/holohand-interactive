@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Hand, Layers, Radio, Settings2, Sparkles, Tv } from "lucide-react";
+import { Box, Hand, Layers, Radio, Settings2, Sparkles, Users } from "lucide-react";
 import { HandOverlay } from "./HandOverlay";
-import { SmartTVPanel } from "./SmartTVPanel";
+import { SocialARPanel } from "./SocialARPanel";
 import { useHandTracking } from "./useHandTracking";
 import { sfx } from "./sfx";
 
 const MENU_ITEMS = [
   { id: "scan", label: "SCAN", desc: "Spatial Scan", Icon: Radio, angle: -90 },
-  { id: "tv", label: "TV", desc: "Media Control", Icon: Tv, angle: -18 },
+  { id: "social", label: "SOCIAL", desc: "Holo Social", Icon: Users, angle: -18 },
   { id: "layers", label: "LAYERS", desc: "Holo Layers", Icon: Layers, angle: 54 },
   { id: "fx", label: "FX", desc: "Particle FX", Icon: Sparkles, angle: 126 },
   { id: "calib", label: "CALIB", desc: "Re-centre", Icon: Settings2, angle: 198 },
@@ -15,15 +15,15 @@ const MENU_ITEMS = [
 
 export default function ARExperience() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [tvOpen, setTvOpen] = useState(false);
+  const [socialOpen, setSocialOpen] = useState(false);
   const [hud, setHud] = useState(true);
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
 
   const handleTwoFingerHold = useCallback(() => {
-    if (tvOpen) {
+    if (socialOpen) {
       sfx.close();
-      setTvOpen(false);
+      setSocialOpen(false);
       setActive(null);
     } else {
       setMenuOpen((open) => {
@@ -38,7 +38,7 @@ export default function ARExperience() {
     }
     setFlash(true);
     window.setTimeout(() => setFlash(false), 700);
-  }, [tvOpen]);
+  }, [socialOpen]);
 
   const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } = useHandTracking(handleTwoFingerHold);
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
@@ -52,20 +52,20 @@ export default function ARExperience() {
     setFlash(true);
     window.setTimeout(() => setFlash(false), 500);
 
-    if (id === "tv") {
+    if (id === "social") {
       setMenuOpen(false);
-      setTvOpen(true);
+      setSocialOpen(true);
     }
   }, []);
 
-  const closeTV = useCallback(() => {
+  const closeSocial = useCallback(() => {
     sfx.close();
-    setTvOpen(false);
+    setSocialOpen(false);
     setActive(null);
   }, []);
 
   useEffect(() => {
-    const interactionOpen = menuOpen || tvOpen;
+    const interactionOpen = menuOpen || socialOpen;
     if (!interactionOpen || !pointer.active) {
       setHovered(null);
       hoverSoundRef.current = null;
@@ -85,12 +85,12 @@ export default function ARExperience() {
       sfx.hover();
     }
     if (!found) hoverSoundRef.current = null;
-  }, [pointer, menuOpen, tvOpen]);
+  }, [pointer, menuOpen, socialOpen]);
 
   useEffect(() => {
-    const interactionOpen = menuOpen || tvOpen;
+    const interactionOpen = menuOpen || socialOpen;
     if (pinchPulse && interactionOpen && hovered) activate(hovered);
-  }, [pinchPulse, menuOpen, tvOpen, hovered, activate]);
+  }, [pinchPulse, menuOpen, socialOpen, hovered, activate]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -107,7 +107,7 @@ export default function ARExperience() {
 
       {status !== "ready" && <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm"><div className="max-w-md rounded-2xl border border-[rgba(34,255,225,0.35)] bg-black/60 p-8 text-center shadow-[0_0_60px_rgba(34,255,225,0.25)]"><Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" /><h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2><p className="mt-2 text-sm text-white/65">Allow camera access, then raise your index and middle fingers together and hold to summon the radial menu.</p>{error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}<button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50"><Radio className="h-4 w-4" />{status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}</button></div></div>}
 
-      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || tvOpen ? "close" : "open"}</p>{(menuOpen || tvOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select</p>}</div>}
+      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select</p>}</div>}
 
       {menuOpen && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
@@ -134,11 +134,9 @@ export default function ARExperience() {
         </div>
       )}
 
-      {tvOpen && <SmartTVPanel registerTarget={setTarget} onActivate={activate} />}
+      {socialOpen && <SocialARPanel registerTarget={setTarget} onClose={closeSocial} onActivate={activate} />}
 
-      {(menuOpen || tvOpen) && pointer.active && <div className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2" style={{ left: pointer.x, top: pointer.y }}><div className={`h-12 w-12 rounded-full border-2 ${hovered ? "border-[rgb(255,90,210)] shadow-[0_0_24px_rgba(255,90,210,0.65)]" : "border-[rgb(34,255,225)] shadow-[0_0_20px_rgba(34,255,225,0.45)]"}`}><div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(34,255,225)]" /></div></div>}
-
-      {tvOpen && <button onClick={closeTV} className="absolute right-5 top-20 z-40 rounded-full border border-[rgba(34,255,225,0.28)] bg-black/40 px-3 py-2 font-mono text-[9px] tracking-widest text-[rgb(34,255,225)] uppercase backdrop-blur hover:bg-[rgba(34,255,225,0.1)]">close tv</button>}
+      {(menuOpen || socialOpen) && pointer.active && <div className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2" style={{ left: pointer.x, top: pointer.y }}><div className={`h-12 w-12 rounded-full border-2 ${hovered ? "border-[rgb(255,90,210)] shadow-[0_0_24px_rgba(255,90,210,0.65)]" : "border-[rgb(34,255,225)] shadow-[0_0_20px_rgba(34,255,225,0.45)]"}`}><div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(34,255,225)]" /></div></div>}
     </div>
   );
 }
