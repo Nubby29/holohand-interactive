@@ -15,11 +15,54 @@ export type TwoHandTransform = {
   angle: number;
 };
 
+type FSLLetter = "F" | "B" | null;
 type Status = "idle" | "loading" | "ready" | "error";
 
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+function classifyFslLetter(hand: Landmark[]): FSLLetter {
+  const wrist = hand[0];
+  const thumbTip = hand[4];
+  const indexTip = hand[8];
+  const indexPip = hand[6];
+  const middleTip = hand[12];
+  const middlePip = hand[10];
+  const ringTip = hand[16];
+  const ringPip = hand[14];
+  const pinkyTip = hand[20];
+  const pinkyPip = hand[18];
+  if (!wrist || !thumbTip || !indexTip || !indexPip || !middleTip || !middlePip || !ringTip || !ringPip || !pinkyTip || !pinkyPip) {
+    return null;
+  }
+
+  const extended = (tip: Landmark, pip: Landmark) =>
+    Math.hypot(tip.x - wrist.x, tip.y - wrist.y) > Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
+  const folded = (tip: Landmark, pip: Landmark) =>
+    Math.hypot(tip.x - wrist.x, tip.y - wrist.y) < Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
+
+  const indexExtended = extended(indexTip, indexPip);
+  const middleExtended = extended(middleTip, middlePip);
+  const ringExtended = extended(ringTip, ringPip);
+  const pinkyExtended = extended(pinkyTip, pinkyPip);
+  const thumbIndexDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+  const handSize = Math.hypot(hand[9].x - wrist.x, hand[9].y - wrist.y) || 0.0001;
+  const thumbTouchesIndex = thumbIndexDistance / handSize < 0.42;
+
+  // F: thumb and index meet while middle, ring and pinky remain extended.
+  if (thumbTouchesIndex && middleExtended && ringExtended && pinkyExtended) return "F";
+
+  // B: four fingers are extended together while the thumb is folded across the palm.
+  // The thumb-vs-palm check intentionally uses a relaxed geometric threshold because
+  // webcam angle and hand orientation can vary significantly.
+  const thumbFolded =
+    Math.hypot(thumbTip.x - wrist.x, thumbTip.y - wrist.y) <
+    Math.hypot(indexPip.x - wrist.x, indexPip.y - wrist.y) * 1.35;
+  if (indexExtended && middleExtended && ringExtended && pinkyExtended && thumbFolded) return "B";
+
+  return null;
+}
 
 export function useHandTracking(onTwoFingerHold: () => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -39,6 +82,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
   });
   const [pinchPulse, setPinchPulse] = useState(0);
   const [pinching, setPinching] = useState(false);
+  const [fslLetter, setFslLetter] = useState<FSLLetter>(null);
   const [twoHandTransform, setTwoHandTransform] = useState<TwoHandTransform>({
     active: false,
     centerX: 0,
@@ -48,12 +92,15 @@ export function useHandTracking(onTwoFingerHold: () => void) {
   });
   const smoothRef = useRef<{ x: number; y: number } | null>(null);
   const pinchingRef = useRef(false);
+  const fslCandidateRef = useRef<FSLLetter>(null);
+  const fslCandidateSinceRef = useRef(0);
 
   const twoFingerStartRef = useRef<number | null>(null);
   const twoFingerTriggeredRef = useRef(false);
   const lastTwoFingerTriggerRef = useRef(0);
   const TWO_FINGER_HOLD_MS = 650;
   const TWO_FINGER_COOLDOWN_MS = 1200;
+  const FSL_STABLE_MS = 280;
 
   const start = useCallback(async () => {
     if (status === "loading" || status === "ready") return;
@@ -112,6 +159,16 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           const fingerTip = hand[8];
           const thumbTip = hand[4];
           const midKnuckle = hand[9];
+
+          const detectedFslLetter = classifyFslLetter(hand);
+          if (detectedFslLetter !== fslCandidateRef.current) {
+            fslCandidateRef.current = detectedFslLetter;
+            fslCandidateSinceRef.current = now;
+          } else if (detectedFslLetter && now - fslCandidateSinceRef.current >= FSL_STABLE_MS) {
+            setFslLetter((current) => (current === detectedFslLetter ? current : detectedFslLetter));
+          } else if (!detectedFslLetter) {
+            setFslLetter(null);
+          }
 
           if (fingerTip) {
             const tx = (1 - fingerTip.x) * window.innerWidth;
@@ -186,6 +243,9 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           setSwipeProgress(0);
           smoothRef.current = null;
           pinchingRef.current = false;
+          fslCandidateRef.current = null;
+          fslCandidateSinceRef.current = 0;
+          setFslLetter(null);
           setPinching(false);
           setPointer((p) => (p.active ? { ...p, active: false } : p));
         }
@@ -245,6 +305,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
     pointer,
     pinchPulse,
     pinching,
+    fslLetter,
     twoHandTransform,
     start,
   };
