@@ -28,7 +28,7 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, []);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, twoHandTransform, start } = useHandTracking(handleTwoFingerRaise);
+  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, pinching, twoHandTransform, start } = useHandTracking(handleTwoFingerRaise);
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
   const hoverSoundRef = useRef<string | null>(null);
