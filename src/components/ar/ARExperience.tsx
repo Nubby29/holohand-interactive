@@ -1,5 +1,15 @@
-import { useCallback, useState } from "react";
-import { Camera, Hand, Layers, Radio, Settings2, Sparkles, Waves, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Camera,
+  Crosshair,
+  Hand,
+  Layers,
+  Radio,
+  Settings2,
+  Sparkles,
+  Waves,
+  X,
+} from "lucide-react";
 import { HandOverlay } from "./HandOverlay";
 import { useHandTracking } from "./useHandTracking";
 import { sfx } from "./sfx";
