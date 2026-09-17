@@ -42,12 +42,9 @@ export default function ARExperience() {
   const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } =
     useHandTracking(handleSwipe);
 
-  const DWELL_MS = 750;
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
-  const [dwell, setDwell] = useState(0);
   const hoverSoundRef = useRef<string | null>(null);
-  const dwellStartRef = useRef(0);
 
   const setTarget = useCallback(
     (id: string) => (el: HTMLElement | null) => {
@@ -68,7 +65,8 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 500);
   }, []);
 
-  // Hit-test the virtual pointer against the menu targets.
+  // Hit-test the index-finger pointer against the menu targets.
+  // Hovering only highlights a target; it never clicks by itself.
   useEffect(() => {
     if (!menuOpen || !pointer.active) {
       setHovered(null);
@@ -79,8 +77,9 @@ export default function ARExperience() {
     targetsRef.current.forEach((el, id) => {
       if (!el || found) return;
       const r = el.getBoundingClientRect();
-      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom)
+      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom) {
         found = id;
+      }
     });
     setHovered(found);
     if (found && hoverSoundRef.current !== found) {
@@ -90,37 +89,12 @@ export default function ARExperience() {
     if (!found) hoverSoundRef.current = null;
   }, [pointer, menuOpen]);
 
-  // Dwell-to-click: hold the pointer on a target for DWELL_MS.
-  useEffect(() => {
-    if (!hovered) {
-      setDwell(0);
-      return;
-    }
-    dwellStartRef.current = performance.now();
-    let raf = 0;
-    let done = false;
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - dwellStartRef.current) / DWELL_MS);
-      setDwell(p);
-      if (p >= 1 && !done) {
-        done = true;
-        activate(hovered);
-        setDwell(0);
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [hovered, activate]);
-
-  // Pinch-to-click: instant selection of whatever is hovered.
+  // Thumb + index pinch = click. pinchPulse is edge-triggered by the hand tracker,
+  // so holding the pinch does not repeatedly activate the same button.
   useEffect(() => {
     if (!pinchPulse || !menuOpen || !hovered) return;
     activate(hovered);
-    setDwell(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinchPulse]);
+  }, [pinchPulse, menuOpen, hovered, activate]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -260,12 +234,6 @@ export default function ARExperience() {
                 <Icon className="h-5 w-5 text-[rgb(34,255,225)] transition group-hover:scale-110" />
                 <p className="mt-3 text-sm font-semibold text-white">{label}</p>
                 <p className="mt-0.5 font-mono text-[11px] tracking-wider text-white/55">{desc}</p>
-                {hovered === id && (
-                  <span
-                    className="absolute inset-x-0 bottom-0 h-1 bg-[rgb(34,255,225)] shadow-[0_0_14px_rgba(34,255,225,0.9)]"
-                    style={{ width: `${Math.round(dwell * 100)}%` }}
-                  />
-                )}
               </button>
             ))}
           </div>
@@ -278,7 +246,7 @@ export default function ARExperience() {
         {menuOpen && (
           <p className="mt-4 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-[rgb(34,255,225)]/80 uppercase">
             <Crosshair className="h-3.5 w-3.5" />
-            point &amp; hold or pinch to select
+            point with index finger · pinch thumb + index to click
           </p>
         )}
       </div>
@@ -307,7 +275,7 @@ export default function ARExperience() {
               strokeWidth="4"
               strokeLinecap="round"
               strokeDasharray={2 * Math.PI * 22}
-              strokeDashoffset={2 * Math.PI * 22 * (1 - dwell)}
+              strokeDashoffset={2 * Math.PI * 22}
               transform="rotate(-90 38 38)"
               style={{ filter: "drop-shadow(0 0 8px rgba(34,255,225,0.9))" }}
             />
@@ -329,7 +297,7 @@ function StatusPill({ label, on }: { label: string; on: boolean }) {
   return (
     <span className="flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-2 font-mono text-[11px] tracking-widest text-white/75 uppercase backdrop-blur">
       <span
-        className={`h-2 w-2 rounded-full ${on ? "bg-[rgb(34,255,225)] shadow-[0_0_10px_rgb(34,255,225)]" : "bg-[rgb(255,190,80)]"}`}
+        className={`h-2 w-2 rounded-full ${on ? "bg-[rgb(34,255,225)] shadow-[0_0_10px_rgba(34,255,225,0.8)]" : "bg-white/30"}`}
       />
       {label}
     </span>
