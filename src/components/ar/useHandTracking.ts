@@ -18,6 +18,7 @@ export function useHandTracking(onSwipeDown: () => void) {
   const handsRef = useRef<HandState>({ landmarks: [], handedness: [] });
   const rafRef = useRef<number | null>(null);
   const trackRef = useRef<Array<{ t: number; y: number }>>([]);
+  const fingerTrackRef = useRef<Array<{ t: number; y: number }>>([]);
   const lastSwipeRef = useRef(0);
   const swipeCbRef = useRef(onSwipeDown);
   swipeCbRef.current = onSwipeDown;
@@ -70,22 +71,45 @@ export function useHandTracking(onSwipeDown: () => void) {
         if (lms.length > 0) {
           const hand = lms[0] ?? [];
           const palm = hand[9] ?? hand[0];
-          const hist = trackRef.current;
-          if (palm) hist.push({ t: now, y: palm.y });
-          while (hist.length && now - (hist[0]?.t ?? now) > 700) hist.shift();
-          const first = hist[0];
-          const last = hist[hist.length - 1];
-          const dy = hist.length > 1 && first && last ? last.y - first.y : 0;
-          const p = Math.max(0, Math.min(1, dy / 0.33));
-          setSwipeProgress(p);
-          if (dy > 0.33 && now - lastSwipeRef.current > 1500) {
+          const fingerTip = hand[8];
+
+          const windowMs = 700;
+          const prune = (hist: Array<{ t: number; y: number }>) => {
+            while (hist.length && now - (hist[0]?.t ?? now) > windowMs) hist.shift();
+          };
+          const deltaY = (hist: Array<{ t: number; y: number }>) => {
+            const first = hist[0];
+            const last = hist[hist.length - 1];
+            return hist.length > 1 && first && last ? last.y - first.y : 0;
+          };
+
+          // Whole-hand swipe: track palm (landmark 9, fallback 0)
+          const palmHist = trackRef.current;
+          if (palm) palmHist.push({ t: now, y: palm.y });
+          prune(palmHist);
+          const palmDy = deltaY(palmHist);
+          const palmProgress = Math.max(0, Math.min(1, palmDy / 0.33));
+
+          // Pointer-finger flick: track index tip (landmark 8).
+          // A finger flick covers less screen distance, so use a smaller threshold.
+          const FINGER_THRESHOLD = 0.14;
+          const fingerHist = fingerTrackRef.current;
+          if (fingerTip) fingerHist.push({ t: now, y: fingerTip.y });
+          prune(fingerHist);
+          const fingerDy = deltaY(fingerHist);
+          const fingerProgress = Math.max(0, Math.min(1, fingerDy / FINGER_THRESHOLD));
+
+          setSwipeProgress(Math.max(palmProgress, fingerProgress));
+          if ((palmDy > 0.33 || fingerDy > FINGER_THRESHOLD) && now - lastSwipeRef.current > 1500) {
             lastSwipeRef.current = now;
-            hist.length = 0;
+            palmHist.length = 0;
+            fingerHist.length = 0;
             setSwipeProgress(0);
             swipeCbRef.current();
           }
         } else {
           trackRef.current.length = 0;
+          fingerTrackRef.current.length = 0;
           setSwipeProgress(0);
         }
       };

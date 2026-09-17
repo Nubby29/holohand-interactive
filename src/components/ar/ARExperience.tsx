@@ -81,8 +81,8 @@ export default function ARExperience() {
             <Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" />
             <h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2>
             <p className="mt-2 text-sm text-white/65">
-              Allow camera access, hold your palm up, then swipe your hand downward to summon the
-              holographic menu.
+              Allow camera access, hold your palm up, then swipe your whole hand — or just your
+              index finger — downward to summon the holographic menu.
             </p>
             {error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}
             <button
