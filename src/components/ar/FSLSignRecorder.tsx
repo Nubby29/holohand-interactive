@@ -74,12 +74,14 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
   const recordingRef = useRef(false);
 
   useEffect(() => {
+    document.body.dataset.fslRecording = recording || countdown !== null ? "true" : "false";
     return () => {
+      delete document.body.dataset.fslRecording;
       recordingRef.current = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     };
-  }, []);
+  }, [recording, countdown]);
 
   const stopRecording = () => {
     if (!recordingRef.current) return;
