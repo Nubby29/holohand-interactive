@@ -31,9 +31,14 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const [contextOpen, setContextOpen] = useState<string | null>(null);
   const [slider, setSlider] = useState(62);
   const [card, setCard] = useState("SYSTEM STATUS");
+  const windowsRef = useRef(windows);
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null);
   const transformStart = useRef<{ id: string; distance: number; angle: number; scale: number; rotation: number } | null>(null);
   const panelRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    windowsRef.current = windows;
+  }, [windows]);
 
   const bringToFront = (id: string) => {
     setNextZ(currentZ => {
@@ -44,7 +49,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
 
   useEffect(() => {
     if (!pointer.active || twoHandTransform.active) return;
-    const candidates = windows.filter(w => !w.minimized).sort((a, b) => b.z - a.z);
+    const candidates = windowsRef.current.filter(w => !w.minimized).sort((a, b) => b.z - a.z);
     const target = candidates.find(w => {
       const el = panelRefs.current[w.id];
       if (!el) return false;
@@ -64,7 +69,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
       const { id, ox, oy } = drag.current;
       setWindows(current => current.map(w => w.id === id ? { ...w, x: clamp((pointer.x - ox) / window.innerWidth, 0.08, 0.92), y: clamp((pointer.y - oy) / window.innerHeight, 0.16, 0.84) } : w));
     }
-  }, [pointer, pinching, twoHandTransform.active, windows]);
+  }, [pointer, pinching, twoHandTransform.active]);
 
   useEffect(() => {
     if (!twoHandTransform.active) {
@@ -72,8 +77,9 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
       return;
     }
 
+    const currentWindows = windowsRef.current;
     if (!transformStart.current) {
-      const active = windows.filter(w => !w.minimized).sort((a, b) => b.z - a.z)[0];
+      const active = currentWindows.filter(w => !w.minimized).sort((a, b) => b.z - a.z)[0];
       if (!active) return;
       transformStart.current = {
         id: active.id,
@@ -101,14 +107,14 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
         y: clamp(twoHandTransform.centerY / window.innerHeight, 0.16, 0.84),
       };
     }));
-  }, [twoHandTransform, windows]);
+  }, [twoHandTransform]);
 
   const updateWindow = (id: string, patch: Partial<SpatialWindow>) => {
     setWindows(current => current.map(w => w.id === id ? { ...w, ...patch } : w));
   };
 
   const duplicateWindow = (id: string) => {
-    const source = windows.find(w => w.id === id);
+    const source = windowsRef.current.find(w => w.id === id);
     if (!source) return;
     setNextZ(currentZ => {
       const copy: SpatialWindow = {
