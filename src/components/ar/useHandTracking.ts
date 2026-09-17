@@ -68,11 +68,14 @@ export function useHandTracking(onSwipeDown: () => void) {
         setHandPresent(lms.length > 0);
 
         if (lms.length > 0) {
-          const palm = lms[0][9] ?? lms[0][0];
+          const hand = lms[0] ?? [];
+          const palm = hand[9] ?? hand[0];
           const hist = trackRef.current;
-          hist.push({ t: now, y: palm.y });
-          while (hist.length && now - hist[0].t > 700) hist.shift();
-          const dy = hist.length > 1 ? hist[hist.length - 1].y - hist[0].y : 0;
+          if (palm) hist.push({ t: now, y: palm.y });
+          while (hist.length && now - (hist[0]?.t ?? now) > 700) hist.shift();
+          const first = hist[0];
+          const last = hist[hist.length - 1];
+          const dy = hist.length > 1 && first && last ? last.y - first.y : 0;
           const p = Math.max(0, Math.min(1, dy / 0.33));
           setSwipeProgress(p);
           if (dy > 0.33 && now - lastSwipeRef.current > 1500) {

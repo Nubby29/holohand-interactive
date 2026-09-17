@@ -54,7 +54,10 @@ export function HandOverlay({
       const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 320);
 
       for (const lm of hands) {
-        const pt = (i: number) => ({ x: (1 - lm[i].x) * w, y: lm[i].y * h });
+        const pt = (i: number) => {
+          const p = lm[i] ?? { x: 0, y: 0, z: 0 };
+          return { x: (1 - p.x) * w, y: p.y * h };
+        };
 
         ctx.save();
         ctx.shadowColor = "rgba(34,255,225,0.9)";
