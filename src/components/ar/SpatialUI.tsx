@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Box, ChevronDown, FileText, MoreHorizontal, Settings2, SlidersHorizontal, X } from "lucide-react";
+import { BarChart3, Box, Check, ChevronDown, FileText, MoreHorizontal, Settings2, SlidersHorizontal, X } from "lucide-react";
 import type { TwoHandTransform } from "./useHandTracking";
 
 type Pointer = { x: number; y: number; active: boolean };
@@ -28,7 +28,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const [windows, setWindows] = useState(INITIAL_WINDOWS);
   const [nextZ, setNextZ] = useState(11);
   const [contextOpen, setContextOpen] = useState<string | null>(null);
-  const [focusedWindow, setFocusedWindow] = useState<string | null>(null);
+  const [selectedWindow, setSelectedWindow] = useState<string | null>(null);
   const [slider, setSlider] = useState(62);
   const [card, setCard] = useState("SYSTEM STATUS");
   const windowsRef = useRef(windows);
@@ -36,6 +36,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const headerRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null);
   const transformStart = useRef<{ id: string; distance: number; angle: number; scale: number; rotation: number } | null>(null);
+  const previousPinching = useRef(false);
 
   useEffect(() => {
     windowsRef.current = windows;
@@ -46,7 +47,12 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
       setWindows(current => current.map(w => w.id === id ? { ...w, z: currentZ } : w));
       return currentZ + 1;
     });
-    setFocusedWindow(id);
+  };
+
+  const selectWindow = (id: string) => {
+    setSelectedWindow(id);
+    setContextOpen(null);
+    bringToFront(id);
   };
 
   const hitTestWindow = () => {
@@ -59,52 +65,78 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
     }) ?? null;
   };
 
+  const isOverHeader = (id: string) => {
+    const header = headerRefs.current[id];
+    if (!header) return false;
+    const r = header.getBoundingClientRect();
+    return pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom;
+  };
+
   useEffect(() => {
     if (!pointer.active) {
-      setFocusedWindow(null);
-      if (!pinching) drag.current = null;
+      drag.current = null;
+      previousPinching.current = pinching;
       return;
     }
 
+    const pinchStarted = pinching && !previousPinching.current;
     const target = hitTestWindow();
-    setFocusedWindow(current => current === target?.id ? current : target?.id ?? null);
 
-    if (twoHandTransform.active) return;
-
-    if (!drag.current && pinching && target) {
-      const header = headerRefs.current[target.id];
-      if (header) {
-        const r = header.getBoundingClientRect();
-        if (pointer.y >= r.top && pointer.y <= r.bottom) {
-          drag.current = { id: target.id, ox: pointer.x - (r.left + r.width / 2), oy: pointer.y - (r.top + r.height / 2) };
-          bringToFront(target.id);
+    if (pinchStarted) {
+      if (target) {
+        selectWindow(target.id);
+        if (isOverHeader(target.id)) {
+          const r = panelRefs.current[target.id]!.getBoundingClientRect();
+          drag.current = {
+            id: target.id,
+            ox: pointer.x - (r.left + r.width / 2),
+            oy: pointer.y - (r.top + r.height / 2),
+          };
         }
+      } else {
+        setSelectedWindow(null);
+        setContextOpen(null);
       }
-    } else if (drag.current && !pinching) {
+    }
+
+    if (twoHandTransform.active) {
       drag.current = null;
+      previousPinching.current = pinching;
+      return;
     }
 
     if (drag.current && pinching) {
       const { id, ox, oy } = drag.current;
-      setWindows(current => current.map(w => w.id === id ? {
-        ...w,
-        x: clamp((pointer.x - ox) / window.innerWidth, 0.12, 0.88),
-        y: clamp((pointer.y - oy) / window.innerHeight, 0.18, 0.82),
-      } : w));
+      if (selectedWindow !== id) {
+        drag.current = null;
+      } else {
+        setWindows(current => current.map(w => w.id === id ? {
+          ...w,
+          x: clamp((pointer.x - ox) / window.innerWidth, 0.12, 0.88),
+          y: clamp((pointer.y - oy) / window.innerHeight, 0.18, 0.82),
+        } : w));
+      }
     }
-  }, [pointer, pinching, twoHandTransform.active]);
+
+    if (!pinching) drag.current = null;
+    previousPinching.current = pinching;
+  }, [pointer, pinching, twoHandTransform.active, selectedWindow]);
 
   useEffect(() => {
     if (!twoHandTransform.active) {
-      transformStart.current = null;
+      if (transformStart.current) {
+        transformStart.current = null;
+        setSelectedWindow(null);
+      }
       return;
     }
 
-    const currentWindows = windowsRef.current;
-    if (!transformStart.current) {
-      const preferred = focusedWindow ? currentWindows.find(w => w.id === focusedWindow) : null;
-      const active = preferred ?? currentWindows.slice().sort((a, b) => b.z - a.z)[0];
-      if (!active) return;
+    if (!selectedWindow) return;
+
+    const active = windowsRef.current.find(w => w.id === selectedWindow);
+    if (!active) return;
+
+    if (!transformStart.current || transformStart.current.id !== selectedWindow) {
       transformStart.current = {
         id: active.id,
         distance: twoHandTransform.distance,
@@ -128,7 +160,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
       x: clamp(twoHandTransform.centerX / window.innerWidth, 0.12, 0.88),
       y: clamp(twoHandTransform.centerY / window.innerHeight, 0.18, 0.82),
     } : w));
-  }, [twoHandTransform, focusedWindow]);
+  }, [twoHandTransform, selectedWindow]);
 
   const updateWindow = (id: string, patch: Partial<SpatialWindow>) => {
     setWindows(current => current.map(w => w.id === id ? { ...w, ...patch } : w));
@@ -148,7 +180,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
         rotation: source.rotation,
       };
       setWindows(current => [...current, copy]);
-      setFocusedWindow(copy.id);
+      setSelectedWindow(copy.id);
       return currentZ + 1;
     });
     setContextOpen(null);
@@ -157,7 +189,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const minimizeWindow = (id: string) => {
     setContextOpen(null);
     setWindows(current => current.filter(w => w.id !== id));
-    if (focusedWindow === id) setFocusedWindow(null);
+    if (selectedWindow === id) setSelectedWindow(null);
   };
 
   const renderWindowBody = (item: SpatialWindow) => {
@@ -199,18 +231,19 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   return (
     <>
       {visibleWindows.map(item => {
-        const focused = focusedWindow === item.id;
+        const selected = selectedWindow === item.id;
         return (
-          <div key={item.id} ref={el => { panelRefs.current[item.id] = el; }} className={`absolute w-[min(310px,34vw)] rounded-xl border p-3 text-white backdrop-blur-xl transition-[opacity,box-shadow,border-color] duration-200 ${focused ? "border-[rgba(34,255,225,0.65)] opacity-100 shadow-[0_0_42px_rgba(34,255,225,0.16)]" : "border-[rgba(34,255,225,0.24)] opacity-80 shadow-[0_0_24px_rgba(34,255,225,0.08)]"} bg-[rgba(3,13,25,0.66)]`} style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%`, zIndex: item.z, transform: `translate(-50%,-50%) rotate(${item.rotation}deg) scale(${item.scale})` }}>
-            <div ref={el => { headerRefs.current[item.id] = el; }} className="relative flex h-8 items-center justify-between border-b border-white/10 pb-2">
-              <button onClick={() => bringToFront(item.id)} className="flex min-w-0 items-center gap-2 text-left"><Box className="h-3.5 w-3.5 shrink-0 text-[rgb(34,255,225)]" /><span className="truncate font-mono text-[8px] tracking-[0.24em] text-[rgb(34,255,225)] uppercase">{item.title}</span></button>
+          <div key={item.id} ref={el => { panelRefs.current[item.id] = el; }} className={`absolute w-[min(310px,34vw)] rounded-xl border p-3 text-white backdrop-blur-xl transition-[opacity,box-shadow,border-color,transform] duration-200 ${selected ? "border-[rgba(34,255,225,0.9)] opacity-100 shadow-[0_0_48px_rgba(34,255,225,0.25)]" : "border-[rgba(34,255,225,0.22)] opacity-65 shadow-[0_0_18px_rgba(34,255,225,0.05)]"} bg-[rgba(3,13,25,0.66)]`} style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%`, zIndex: item.z, transform: `translate(-50%,-50%) rotate(${item.rotation}deg) scale(${item.scale})` }}>
+            <div ref={el => { headerRefs.current[item.id] = el; }} className={`relative flex h-8 items-center justify-between border-b pb-2 ${selected ? "border-[rgba(34,255,225,0.28)]" : "border-white/10"}`}>
+              <button onClick={() => selectWindow(item.id)} className="flex min-w-0 items-center gap-2 text-left"><Box className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-[rgb(34,255,225)]" : "text-white/40"}`} /><span className={`truncate font-mono text-[8px] tracking-[0.24em] uppercase ${selected ? "text-[rgb(34,255,225)]" : "text-white/45"}`}>{item.title}</span></button>
               <div className="flex items-center gap-0.5">
-                <button aria-label={`Context menu for ${item.title}`} onClick={() => { bringToFront(item.id); setContextOpen(v => v === item.id ? null : item.id); }} className="rounded-md p-1.5 text-white/40 hover:bg-white/10 hover:text-white"><MoreHorizontal className="h-3.5 w-3.5" /></button>
+                {selected && <span className="mr-1 flex items-center gap-1 rounded-full border border-[rgba(34,255,225,0.3)] px-1.5 py-0.5 font-mono text-[6px] tracking-widest text-[rgb(34,255,225)]"><Check className="h-2.5 w-2.5" />SELECTED</span>}
+                <button aria-label={`Context menu for ${item.title}`} onClick={() => { selectWindow(item.id); setContextOpen(v => v === item.id ? null : item.id); }} className="rounded-md p-1.5 text-white/40 hover:bg-white/10 hover:text-white"><MoreHorizontal className="h-3.5 w-3.5" /></button>
                 <button aria-label={`Minimize ${item.title}`} onClick={() => minimizeWindow(item.id)} className="rounded-md p-1.5 text-white/40 hover:bg-white/10 hover:text-white"><ChevronDown className="h-3.5 w-3.5" /></button>
                 <button aria-label={`Close ${item.title}`} onClick={() => minimizeWindow(item.id)} className="rounded-md p-1.5 text-white/40 hover:bg-white/10 hover:text-[rgb(255,90,210)]"><X className="h-3.5 w-3.5" /></button>
               </div>
               {contextOpen === item.id && <div className="absolute right-0 top-9 z-[100] w-40 rounded-lg border border-[rgba(34,255,225,0.3)] bg-[rgba(2,8,18,0.96)] p-1 shadow-[0_0_24px_rgba(34,255,225,0.15)]">
-                <button onClick={() => { bringToFront(item.id); setContextOpen(null); }} className="block w-full rounded-md px-2.5 py-2 text-left font-mono text-[8px] tracking-wider text-white/65 hover:bg-white/10 hover:text-white">PIN TO SPACE</button>
+                <button onClick={() => { selectWindow(item.id); setContextOpen(null); }} className="block w-full rounded-md px-2.5 py-2 text-left font-mono text-[8px] tracking-wider text-white/65 hover:bg-white/10 hover:text-white">SELECT WINDOW</button>
                 <button onClick={() => duplicateWindow(item.id)} className="block w-full rounded-md px-2.5 py-2 text-left font-mono text-[8px] tracking-wider text-white/65 hover:bg-white/10 hover:text-white">DUPLICATE WINDOW</button>
                 <button onClick={() => minimizeWindow(item.id)} className="block w-full rounded-md px-2.5 py-2 text-left font-mono text-[8px] tracking-wider text-white/65 hover:bg-white/10 hover:text-white">REMOVE WINDOW</button>
               </div>}
@@ -220,9 +253,9 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
         );
       })}
 
-      <div className="pointer-events-none absolute bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 font-mono text-[7px] tracking-[0.18em] text-white/35 backdrop-blur-md uppercase">
-        pinch title bar · two-hand pinch to transform
-      </div>
+      {selectedWindow && <div className="pointer-events-none absolute bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-[rgba(34,255,225,0.3)] bg-[rgba(0,0,0,0.38)] px-3 py-1.5 font-mono text-[7px] tracking-[0.18em] text-[rgb(34,255,225)] backdrop-blur-md uppercase">
+        selected · pinch title bar to move · two-hand pinch to transform · pinch empty space to unselect
+      </div>}
     </>
   );
 }
