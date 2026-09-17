@@ -27,9 +27,9 @@ export default function ARExperience() {
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
 
-  // A downward swipe only summons the menu. Once open, it cannot dismiss the menu.
-  // Closing is intentionally handled only by pointing at the X close button.
-  const handleSwipe = useCallback(() => {
+  // Index + middle finger raise summons the menu. Once open, it cannot dismiss it.
+  // Closing is intentionally handled only by pointing at the X and pinching.
+  const handleTwoFingerRaise = useCallback(() => {
     setMenuOpen((open) => {
       if (open) return true;
       sfx.open();
@@ -40,7 +40,7 @@ export default function ARExperience() {
   }, []);
 
   const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } =
-    useHandTracking(handleSwipe);
+    useHandTracking(handleTwoFingerRaise);
 
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
@@ -147,8 +147,7 @@ export default function ARExperience() {
             <Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" />
             <h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2>
             <p className="mt-2 text-sm text-white/65">
-              Allow camera access, hold your palm up, then swipe your whole hand — or just your
-              index finger — downward to summon the holographic menu.
+              Allow camera access, then raise your index and middle fingers together for a moment to summon the holographic menu.
             </p>
             {error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}
             <button
@@ -177,7 +176,7 @@ export default function ARExperience() {
           </div>
           <p className="mt-2 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-white/70 uppercase">
             <Waves className="h-3.5 w-3.5 text-[rgb(255,90,210)]" />
-            swipe down to {menuOpen ? "open" : "summon"}
+            raise index + middle to {menuOpen ? "stay active" : "summon"}
           </p>
         </div>
       )}
