@@ -3,7 +3,7 @@ import { Box, Hand, Languages, Layers, Radio, Settings2, Sparkles, Users } from 
 import { HandOverlay } from "./HandOverlay";
 import { SignLanguagePanel } from "./SignLanguagePanel";
 import { SocialARPanel } from "./SocialARPanel";
-import { AnimePauseEffect } from "./AnimePauseEffect";
+import { FlameEffect } from "./FlameEffect";
 import { useHandTracking } from "./useHandTracking";
 import { sfx } from "./sfx";
 
@@ -11,7 +11,7 @@ const MENU_ITEMS = [
   { id: "scan", label: "SCAN", desc: "Spatial Scan", Icon: Radio, angle: -90 },
   { id: "social", label: "SOCIAL", desc: "Holo Social", Icon: Users, angle: -30 },
   { id: "layers", label: "LAYERS", desc: "Holo Layers", Icon: Layers, angle: 30 },
-  { id: "fx", label: "FX", desc: "Anime Pause", Icon: Sparkles, angle: 90 },
+  { id: "fx", label: "FX", desc: "Element FX", Icon: Sparkles, angle: 90 },
   { id: "calib", label: "CALIB", desc: "Re-centre", Icon: Settings2, angle: 150 },
   { id: "sign", label: "SIGN", desc: "ASL / FSL", Icon: Languages, angle: 210 },
 ];
@@ -22,7 +22,6 @@ export default function ARExperience() {
   const [signOpen, setSignOpen] = useState(false);
   const [hud, setHud] = useState(true);
   const [fxEnabled, setFxEnabled] = useState(false);
-  const [animePause, setAnimePause] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [recognizedSigns, setRecognizedSigns] = useState("");
@@ -85,30 +84,7 @@ export default function ARExperience() {
   const scrollPointerRef = useRef<{ x: number; y: number } | null>(null);
   const signSequenceRef = useRef("");
   const signResetRef = useRef<number | null>(null);
-  const fxPoseRef = useRef<{
-    signature: number[] | null;
-    stableSince: number | null;
-    armed: boolean;
-    lastTrigger: number;
-  }>({ signature: null, stableSince: null, armed: true, lastTrigger: 0 });
   const setTarget = useCallback((id: string) => (el: HTMLElement | null) => targetsRef.current.set(id, el), []);
-
-  const captureAnimePause = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    context.translate(canvas.width, 0);
-    context.scale(-1, 1);
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setAnimePause(canvas.toDataURL("image/jpeg", 0.82));
-    sfx.select();
-  }, [videoRef]);
 
   const activate = useCallback((id: string) => {
     sfx.select();
@@ -181,64 +157,6 @@ export default function ARExperience() {
     if (signResetRef.current) window.clearTimeout(signResetRef.current);
   }, []);
 
-  // FX mode watches the live landmarks. A pose must remain stable before it is
-  // treated as an "iconic pause". Movement re-arms the trigger for the next pose.
-  useEffect(() => {
-    if (!fxEnabled || status !== "ready") {
-      fxPoseRef.current.signature = null;
-      fxPoseRef.current.stableSince = null;
-      return;
-    }
-
-    const landmarks = handsRef.current.landmarks;
-    if (!landmarks.length) {
-      fxPoseRef.current.signature = null;
-      fxPoseRef.current.stableSince = null;
-      fxPoseRef.current.armed = true;
-      return;
-    }
-
-    const signature = landmarks.flatMap((hand) => {
-      const wrist = hand[0];
-      const middleMcp = hand[9];
-      if (!wrist || !middleMcp) return [];
-      const scale = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.0001;
-      return [
-        ...[4, 8, 12, 16, 20].flatMap((index) => {
-          const point = hand[index];
-          if (!point) return [];
-          return [(point.x - wrist.x) / scale, (point.y - wrist.y) / scale];
-        }),
-      ];
-    });
-
-    if (!signature.length) return;
-
-    const previous = fxPoseRef.current.signature;
-    fxPoseRef.current.signature = signature;
-    if (!previous || previous.length !== signature.length) {
-      fxPoseRef.current.stableSince = performance.now();
-      return;
-    }
-
-    const drift = signature.reduce((sum, value, index) => sum + Math.abs(value - previous[index]), 0) / signature.length;
-    const now = performance.now();
-
-    if (drift > 0.055) {
-      fxPoseRef.current.armed = true;
-      fxPoseRef.current.stableSince = now;
-      return;
-    }
-
-    if (fxPoseRef.current.stableSince === null) fxPoseRef.current.stableSince = now;
-
-    if (fxPoseRef.current.armed && now - fxPoseRef.current.stableSince >= 650 && now - fxPoseRef.current.lastTrigger > 1800) {
-      fxPoseRef.current.armed = false;
-      fxPoseRef.current.lastTrigger = now;
-      captureAnimePause();
-    }
-  }, [fxEnabled, pointer, status, handsRef, captureAnimePause]);
-
   useEffect(() => {
     const interactionOpen = menuOpen || socialOpen;
     if (!interactionOpen || !pointer.active) {
@@ -299,17 +217,17 @@ export default function ARExperience() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(2,6,16,0.78)_100%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:repeating-linear-gradient(0deg,rgba(34,255,225,0.14)_0px,rgba(34,255,225,0.14)_1px,transparent_1px,transparent_4px)]" />
       <HandOverlay handsRef={handsRef} enabled={hud && status === "ready"} />
+      <FlameEffect handsRef={handsRef} enabled={fxEnabled && status === "ready"} />
       {flash && <div className="pointer-events-none absolute inset-0 z-50 animate-[pulse_0.6s_ease-out] bg-[rgba(34,255,225,0.1)]" />}
-      <AnimePauseEffect image={animePause} onDone={() => setAnimePause(null)} />
 
       <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 p-5">
-        <div><h1 className="font-mono text-sm tracking-[0.35em] text-[rgb(34,255,225)] uppercase">Aurora // Handspace</h1><p className="mt-1 font-mono text-[11px] tracking-widest text-white/50 uppercase">gesture interface v3.0 · ASL + FX</p></div>
-        <div className="flex items-center gap-2"><StatusPill label={status === "ready" ? (handPresent ? "hand locked" : "scanning") : status} on={status === "ready" && handPresent} /><button onClick={() => { sfx.hover(); setFxEnabled(v => !v); }} className={`rounded-full border px-4 py-2 font-mono text-[10px] tracking-widest uppercase backdrop-blur transition ${fxEnabled ? "border-[rgb(255,90,210)] bg-[rgba(255,90,210,0.14)] text-[rgb(255,90,210)]" : "border-[rgba(34,255,225,0.35)] bg-black/35 text-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.12)]"}`}>FX {fxEnabled ? "on" : "off"}</button><button onClick={() => { sfx.hover(); setHud(v => !v); }} className="rounded-full border border-[rgba(34,255,225,0.35)] bg-black/35 px-4 py-2 font-mono text-[10px] tracking-widest text-[rgb(34,255,225)] uppercase backdrop-blur transition hover:bg-[rgba(34,255,225,0.12)]">HUD {hud ? "on" : "off"}</button></div>
+        <div><h1 className="font-mono text-sm tracking-[0.35em] text-[rgb(34,255,225)] uppercase">Aurora // Handspace</h1><p className="mt-1 font-mono text-[11px] tracking-widest text-white/50 uppercase">gesture interface v3.1 · ASL + ELEMENT FX</p></div>
+        <div className="flex items-center gap-2"><StatusPill label={status === "ready" ? (handPresent ? "hand locked" : "scanning") : status} on={status === "ready" && handPresent} /><button onClick={() => { sfx.hover(); setFxEnabled((v) => !v); }} className={`rounded-full border px-4 py-2 font-mono text-[10px] tracking-widest uppercase backdrop-blur transition ${fxEnabled ? "border-[rgb(255,90,30)] bg-[rgba(255,90,30,0.16)] text-[rgb(255,170,90)] shadow-[0_0_22px_rgba(255,90,30,0.25)]" : "border-[rgba(34,255,225,0.35)] bg-black/35 text-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.12)]"}`}>FX {fxEnabled ? "on" : "off"}</button><button onClick={() => { sfx.hover(); setHud((v) => !v); }} className="rounded-full border border-[rgba(34,255,225,0.35)] bg-black/35 px-4 py-2 font-mono text-[10px] tracking-widest text-[rgb(34,255,225)] uppercase backdrop-blur transition hover:bg-[rgba(34,255,225,0.12)]">HUD {hud ? "on" : "off"}</button></div>
       </header>
 
       {status !== "ready" && <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm"><div className="max-w-md rounded-2xl border border-[rgba(34,255,225,0.35)] bg-black/60 p-8 text-center shadow-[0_0_60px_rgba(34,255,225,0.25)]"><Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" /><h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2><p className="mt-2 text-sm text-white/65">Allow camera access, then raise your index and middle fingers together and hold to summon the radial menu.</p>{error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}<button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50"><Radio className="h-4 w-4" />{status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}</button></div></div>}
 
-      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen || signOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select · pinch + drag to scroll</p>}{signOpen && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(255,90,210)]/70 uppercase">ASL · sign letters one at a time · FB opens Holo Social</p>}{fxEnabled && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(255,90,210)]/70 uppercase">FX AUTO · hold an iconic pose for the anime pause</p>}</div>}
+      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen || signOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select · pinch + drag to scroll</p>}{signOpen && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(255,90,210)]/70 uppercase">ASL / FSL · sign letters one at a time · FB opens Holo Social</p>}{fxEnabled && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(255,150,70)]/80 uppercase">ELEMENT FX · open palm = FLAME</p>}</div>}
 
       {menuOpen && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
