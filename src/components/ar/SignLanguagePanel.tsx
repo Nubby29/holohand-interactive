@@ -1,5 +1,6 @@
 import { Hand, Languages, X } from "lucide-react";
 import { FSLSignRecorder } from "./FSLSignRecorder";
+import { HoloKeyboardPanel } from "./HoloKeyboardPanel";
 import type { HandState } from "./useHandTracking";
 
 export type SignLanguagePanelProps = {
@@ -46,6 +47,8 @@ export function SignLanguagePanel({ recognized, currentLetter, handsRef, onClose
               <p className="mt-2 font-mono text-5xl font-bold text-[rgb(255,90,210)]">{currentLetter ?? "·"}</p>
             </div>
           </div>
+
+          <HoloKeyboardPanel handsRef={handsRef} />
 
           <FSLSignRecorder handsRef={handsRef} />
 
