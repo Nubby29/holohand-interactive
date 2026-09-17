@@ -203,5 +203,15 @@ export function useHandTracking(onSwipeDown: () => void) {
     };
   }, []);
 
-  return { videoRef, handsRef, status, error, handPresent, swipeProgress, start };
+  return {
+    videoRef,
+    handsRef,
+    status,
+    error,
+    handPresent,
+    swipeProgress,
+    pointer,
+    pinchPulse,
+    start,
+  };
 }
