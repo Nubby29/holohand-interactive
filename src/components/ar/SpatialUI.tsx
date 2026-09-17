@@ -18,10 +18,12 @@ type SpatialWindow = {
 type Props = { pointer: Pointer; pinching: boolean; twoHandTransform: TwoHandTransform };
 
 const INITIAL_WINDOWS: SpatialWindow[] = [
-  { id: "dashboard", title: "SYSTEM STATUS", x: 27, y: 31, scale: 1, rotation: 0, z: 10, minimized: false },
-  { id: "objects", title: "OBJECT REGISTRY", x: 70, y: 42, scale: 0.9, rotation: -3, z: 9, minimized: false },
-  { id: "controls", title: "HOLOGRAM CONTROL", x: 45, y: 73, scale: 0.82, rotation: 2, z: 8, minimized: false },
+  { id: "dashboard", title: "SYSTEM STATUS", x: 0.27, y: 0.31, scale: 1, rotation: 0, z: 10, minimized: false },
+  { id: "objects", title: "OBJECT REGISTRY", x: 0.70, y: 0.42, scale: 0.9, rotation: -3, z: 9, minimized: false },
+  { id: "controls", title: "HOLOGRAM CONTROL", x: 0.45, y: 0.73, scale: 0.82, rotation: 2, z: 8, minimized: false },
 ];
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const [windows, setWindows] = useState(INITIAL_WINDOWS);
@@ -34,15 +36,15 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   const panelRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const bringToFront = (id: string) => {
-    setNextZ(z => z + 1);
-    setWindows(current => current.map(w => w.id === id ? { ...w, z: nextZ } : w));
+    setNextZ(currentZ => {
+      setWindows(current => current.map(w => w.id === id ? { ...w, z: currentZ } : w));
+      return currentZ + 1;
+    });
   };
 
   useEffect(() => {
     if (!pointer.active || twoHandTransform.active) return;
-    const candidates = windows
-      .filter(w => !w.minimized)
-      .sort((a, b) => b.z - a.z);
+    const candidates = windows.filter(w => !w.minimized).sort((a, b) => b.z - a.z);
     const target = candidates.find(w => {
       const el = panelRefs.current[w.id];
       if (!el) return false;
@@ -60,7 +62,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
 
     if (drag.current && pinching) {
       const { id, ox, oy } = drag.current;
-      setWindows(current => current.map(w => w.id === id ? { ...w, x: pointer.x - ox, y: pointer.y - oy } : w));
+      setWindows(current => current.map(w => w.id === id ? { ...w, x: clamp((pointer.x - ox) / window.innerWidth, 0.08, 0.92), y: clamp((pointer.y - oy) / window.innerHeight, 0.16, 0.84) } : w));
     }
   }, [pointer, pinching, twoHandTransform.active, windows]);
 
@@ -85,21 +87,18 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
     }
 
     const start = transformStart.current;
-    const deltaAngle = (() => {
-      let delta = twoHandTransform.angle - start.angle;
-      while (delta > Math.PI) delta -= Math.PI * 2;
-      while (delta < -Math.PI) delta += Math.PI * 2;
-      return delta;
-    })();
+    let deltaAngle = twoHandTransform.angle - start.angle;
+    while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
+    while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
 
     setWindows(current => current.map(w => {
       if (w.id !== start.id) return w;
       return {
         ...w,
-        scale: start.distance > 1 ? Math.max(0.6, Math.min(1.65, start.scale * twoHandTransform.distance / start.distance)) : w.scale,
+        scale: start.distance > 1 ? clamp(start.scale * twoHandTransform.distance / start.distance, 0.6, 1.65) : w.scale,
         rotation: start.rotation + deltaAngle * 180 / Math.PI,
-        x: twoHandTransform.centerX,
-        y: twoHandTransform.centerY,
+        x: clamp(twoHandTransform.centerX / window.innerWidth, 0.08, 0.92),
+        y: clamp(twoHandTransform.centerY / window.innerHeight, 0.16, 0.84),
       };
     }));
   }, [twoHandTransform, windows]);
@@ -108,31 +107,37 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
     setWindows(current => current.map(w => w.id === id ? { ...w, ...patch } : w));
   };
 
-  const contextItems = (id: string) => [
-    { label: "Pin to space", action: () => updateWindow(id, { z: nextZ }) },
-    { label: "Duplicate window", action: () => duplicateWindow(id) },
-    { label: "Minimize window", action: () => updateWindow(id, { minimized: true }) },
-  ];
-
   const duplicateWindow = (id: string) => {
     const source = windows.find(w => w.id === id);
     if (!source) return;
-    const copy: SpatialWindow = {
-      ...source,
-      id: `${source.id}-${Date.now()}`,
-      title: `${source.title} COPY`,
-      x: Math.min(88, source.x + 7),
-      y: Math.min(84, source.y + 7),
-      z: nextZ,
-      rotation: source.rotation + 2,
-      minimized: false,
-    };
-    setNextZ(z => z + 1);
-    setWindows(current => [...current, copy]);
+    setNextZ(currentZ => {
+      const copy: SpatialWindow = {
+        ...source,
+        id: `${source.id}-${Date.now()}`,
+        title: `${source.title} COPY`,
+        x: clamp(source.x + 0.07, 0.08, 0.92),
+        y: clamp(source.y + 0.07, 0.16, 0.84),
+        z: currentZ,
+        rotation: source.rotation + 2,
+        minimized: false,
+      };
+      setWindows(current => [...current, copy]);
+      return currentZ + 1;
+    });
     setContextOpen(null);
   };
 
-  const restoreWindow = (id: string) => updateWindow(id, { minimized: false, z: nextZ });
+  const minimizeWindow = (id: string) => {
+    updateWindow(id, { minimized: true });
+    setContextOpen(null);
+  };
+
+  const restoreWindow = (id: string) => {
+    setNextZ(currentZ => {
+      setWindows(current => current.map(w => w.id === id ? { ...w, minimized: false, z: currentZ } : w));
+      return currentZ + 1;
+    });
+  };
 
   const renderWindowBody = (window: SpatialWindow) => {
     if (window.id.startsWith("objects")) {
@@ -153,9 +158,7 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
         <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
           <div className="flex items-center justify-between"><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-[rgb(34,255,225)]" /><span className="font-mono text-[10px] tracking-widest text-white/70 uppercase">hologram intensity</span></div><span className="font-mono text-[10px] text-[rgb(34,255,225)]">{slider}%</span></div>
           <input aria-label="Hologram intensity" type="range" min="0" max="100" value={slider} onChange={e => setSlider(Number(e.target.value))} className="mt-3 w-full accent-[rgb(34,255,225)]" />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {["DEPTH", "GLOW"].map(label => <button key={label} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 font-mono text-[9px] tracking-widest text-white/60 hover:border-[rgba(34,255,225,0.4)]">{label}</button>)}
-          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">{["DEPTH", "GLOW"].map(label => <button key={label} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 font-mono text-[9px] tracking-widest text-white/60 hover:border-[rgba(34,255,225,0.4)]">{label}</button>)}</div>
         </div>
       );
     }
@@ -176,26 +179,28 @@ export function SpatialUI({ pointer, pinching, twoHandTransform }: Props) {
   return (
     <>
       {visibleWindows.map(window => (
-        <div key={window.id} ref={el => { panelRefs.current[window.id] = el; }} className="absolute z-10 w-[min(390px,78vw)] rounded-2xl border border-[rgba(34,255,225,0.4)] bg-[rgba(3,13,25,0.58)] p-4 text-white shadow-[0_0_55px_rgba(34,255,225,0.16)] backdrop-blur-xl" style={{ left: `${window.x}%`, top: `${window.y}%`, zIndex: window.z, transform: `translate(-50%,-50%) rotate(${window.rotation}deg) scale(${window.scale})` }}>
+        <div key={window.id} ref={el => { panelRefs.current[window.id] = el; }} className="absolute z-10 w-[min(390px,78vw)] rounded-2xl border border-[rgba(34,255,225,0.4)] bg-[rgba(3,13,25,0.58)] p-4 text-white shadow-[0_0_55px_rgba(34,255,225,0.16)] backdrop-blur-xl" style={{ left: `${window.x * 100}%`, top: `${window.y * 100}%`, zIndex: window.z, transform: `translate(-50%,-50%) rotate(${window.rotation}deg) scale(${window.scale})` }}>
           <div className="relative flex items-center justify-between border-b border-white/10 pb-3">
             <button onClick={() => bringToFront(window.id)} className="flex items-center gap-2 text-left"><Box className="h-4 w-4 text-[rgb(34,255,225)]" /><span className="font-mono text-[10px] tracking-[0.28em] text-[rgb(34,255,225)] uppercase">{window.title}</span></button>
             <div className="flex items-center gap-1">
               <button aria-label={`Context menu for ${window.title}`} onClick={() => setContextOpen(v => v === window.id ? null : window.id)} className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white"><MoreHorizontal className="h-4 w-4" /></button>
-              <button aria-label={`Minimize ${window.title}`} onClick={() => updateWindow(window.id, { minimized: true })} className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white"><ChevronDown className="h-4 w-4" /></button>
-              <button aria-label={`Close ${window.title}`} onClick={() => updateWindow(window.id, { minimized: true })} className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-[rgb(255,90,210)]"><X className="h-4 w-4" /></button>
+              <button aria-label={`Minimize ${window.title}`} onClick={() => minimizeWindow(window.id)} className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white"><ChevronDown className="h-4 w-4" /></button>
+              <button aria-label={`Close ${window.title}`} onClick={() => minimizeWindow(window.id)} className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-[rgb(255,90,210)]"><X className="h-4 w-4" /></button>
             </div>
-            {contextOpen === window.id && <div className="absolute right-4 top-14 z-30 w-44 rounded-xl border border-[rgba(34,255,225,0.35)] bg-[rgba(2,8,18,0.94)] p-1 shadow-[0_0_30px_rgba(34,255,225,0.2)]">{contextItems(window.id).map(item => <button key={item.label} onClick={item.action} className="block w-full rounded-lg px-3 py-2 text-left font-mono text-[10px] tracking-wider text-white/70 hover:bg-[rgba(34,255,225,0.12)] hover:text-white">{item.label}</button>)}</div>}
+            {contextOpen === window.id && <div className="absolute right-4 top-14 z-30 w-44 rounded-xl border border-[rgba(34,255,225,0.35)] bg-[rgba(2,8,18,0.94)] p-1 shadow-[0_0_30px_rgba(34,255,225,0.2)]">{[
+              { label: "Pin to space", action: () => { bringToFront(window.id); setContextOpen(null); } },
+              { label: "Duplicate window", action: () => duplicateWindow(window.id) },
+              { label: "Minimize window", action: () => minimizeWindow(window.id) },
+            ].map(item => <button key={item.label} onClick={item.action} className="block w-full rounded-lg px-3 py-2 text-left font-mono text-[10px] tracking-wider text-white/70 hover:bg-[rgba(34,255,225,0.12)] hover:text-white">{item.label}</button>)}</div>}
           </div>
           {renderWindowBody(window)}
           <p className="mt-3 text-center font-mono text-[8px] tracking-widest text-white/30 uppercase">pinch title bar to move · two-hand pinch to transform</p>
         </div>
       ))}
 
-      {minimizedWindows.length > 0 && (
-        <div className="absolute bottom-8 left-1/2 z-[80] flex max-w-[90vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-2 backdrop-blur-xl">
-          {minimizedWindows.map(window => <button key={window.id} onClick={() => restoreWindow(window.id)} className="rounded-xl border border-[rgba(34,255,225,0.25)] bg-[rgba(3,13,25,0.72)] px-3 py-2 font-mono text-[9px] tracking-widest text-[rgb(34,255,225)] uppercase hover:bg-[rgba(34,255,225,0.1)]">restore · {window.title}</button>)}
-        </div>
-      )}
+      {minimizedWindows.length > 0 && <div className="absolute bottom-8 left-1/2 z-[80] flex max-w-[90vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-2 backdrop-blur-xl">
+        {minimizedWindows.map(window => <button key={window.id} onClick={() => restoreWindow(window.id)} className="rounded-xl border border-[rgba(34,255,225,0.25)] bg-[rgba(3,13,25,0.72)] px-3 py-2 font-mono text-[9px] tracking-widest text-[rgb(34,255,225)] uppercase hover:bg-[rgba(34,255,225,0.1)]">restore · {window.title}</button>)}
+      </div>}
     </>
   );
 }
