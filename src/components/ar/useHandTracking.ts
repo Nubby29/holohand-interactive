@@ -21,12 +21,12 @@ const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wa
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
-export function useHandTracking(onSwipeDown: () => void) {
+export function useHandTracking(onTwoFingerHold: () => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const handsRef = useRef<HandState>({ landmarks: [], handedness: [] });
   const rafRef = useRef<number | null>(null);
-  const swipeCbRef = useRef(onSwipeDown);
-  swipeCbRef.current = onSwipeDown;
+  const swipeCbRef = useRef(onTwoFingerHold);
+  swipeCbRef.current = onTwoFingerHold;
 
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -190,8 +190,6 @@ export function useHandTracking(onSwipeDown: () => void) {
           setPointer((p) => (p.active ? { ...p, active: false } : p));
         }
 
-        // Two-hand transform gesture: pinch with both hands. The midpoint gives
-        // the shared manipulation anchor, distance drives scale, and angle drives rotation.
         if (lms.length >= 2) {
           const first = lms[0] ?? [];
           const second = lms[1] ?? [];
