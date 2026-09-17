@@ -1,6 +1,6 @@
-import { Hand, Languages, X } from "lucide-react";
+import { Languages, X } from "lucide-react";
+import { ASLKeyboardPanel } from "./ASLKeyboardPanel";
 import { FSLSignRecorder } from "./FSLSignRecorder";
-import { HoloKeyboardPanel } from "./HoloKeyboardPanel";
 import type { HandState } from "./useHandTracking";
 
 export type SignLanguagePanelProps = {
@@ -20,8 +20,8 @@ export function SignLanguagePanel({ recognized, currentLetter, handsRef, onClose
               <Languages className="h-5 w-5 text-[rgb(34,255,225)]" />
             </div>
             <div>
-              <p className="font-mono text-[11px] tracking-[0.28em] text-[rgb(34,255,225)] uppercase">FSL SIGNSPACE</p>
-              <p className="mt-1 text-xs text-white/45">Filipino Sign Language recognition + custom sign training</p>
+              <p className="font-mono text-[11px] tracking-[0.28em] text-[rgb(34,255,225)] uppercase">SIGNSPACE // ASL</p>
+              <p className="mt-1 text-xs text-white/45">American Sign Language fingerspelling keyboard</p>
             </div>
           </div>
           <button onClick={onClose} className="rounded-full border border-white/10 p-2 text-white/55 transition hover:border-white/25 hover:text-white" aria-label="Close sign language mode">
@@ -32,32 +32,32 @@ export function SignLanguagePanel({ recognized, currentLetter, handsRef, onClose
         <div className="overflow-y-auto px-6 pb-6">
           <div className="grid gap-5 pt-6 sm:grid-cols-[1fr_180px]">
             <div className="rounded-2xl border border-[rgba(34,255,225,0.18)] bg-black/25 p-5">
-              <p className="font-mono text-[9px] tracking-[0.22em] text-white/40 uppercase">Recognized sequence</p>
+              <p className="font-mono text-[9px] tracking-[0.22em] text-white/40 uppercase">FSL legacy detector</p>
               <p className="mt-3 min-h-16 break-all font-mono text-4xl font-semibold tracking-[0.18em] text-white">
                 {recognized || "—"}
               </p>
               <p className="mt-4 font-mono text-[9px] leading-relaxed tracking-wider text-white/40 uppercase">
-                Hold each detected handshape briefly. Custom dynamic signs can be recorded below as landmark sequences.
+                The original FSL prototype remains available here. The keyboard below is now an experimental ASL fingerspelling input.
               </p>
             </div>
 
             <div className="rounded-2xl border border-[rgba(255,90,210,0.22)] bg-[rgba(255,90,210,0.05)] p-5 text-center">
-              <Hand className="mx-auto h-7 w-7 text-[rgb(255,90,210)]" />
-              <p className="mt-3 font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Current</p>
+              <p className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Current FSL</p>
               <p className="mt-2 font-mono text-5xl font-bold text-[rgb(255,90,210)]">{currentLetter ?? "·"}</p>
+              <p className="mt-3 font-mono text-[7px] leading-relaxed tracking-wider text-white/25 uppercase">ASL keyboard recognition is independent of this legacy FSL display.</p>
             </div>
           </div>
 
-          <HoloKeyboardPanel handsRef={handsRef} />
+          <ASLKeyboardPanel handsRef={handsRef} />
 
           <FSLSignRecorder handsRef={handsRef} />
 
           <div className="mt-5 border-t border-white/10 pt-4">
             <p className="font-mono text-[9px] tracking-[0.16em] text-white/45 uppercase">
-              Prototype launcher: <span className="text-[rgb(34,255,225)]">F + B</span> opens Holo Social
+              ASL mode: <span className="text-[rgb(255,90,210)]">fingerspell</span> letters to type
             </p>
             <p className="mt-1 font-mono text-[8px] leading-relaxed tracking-wider text-white/30 uppercase">
-              Recorder saves normalized MediaPipe hand landmarks, not camera video. Export the dataset and commit it to GitHub for model training/integration.
+              Fingerspelling is one part of ASL, not the whole language. This prototype recognizes static handshapes from MediaPipe landmarks; movement-based J/Z and subtle orientation-dependent letters need temporal training for reliable recognition.
             </p>
           </div>
         </div>
