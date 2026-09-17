@@ -11,7 +11,6 @@ function getHand(frame: FSLMotionFrame, side: "Right" | "Left"): LandmarkLike[] 
 
 function sampleHand(landmarks: LandmarkLike[] | null): HandSample | null {
   if (!landmarks || landmarks.length < 21) return null;
-
   const wrist = landmarks[0];
   const indexMcp = landmarks[5];
   const middleMcp = landmarks[9];
@@ -24,10 +23,8 @@ function sampleHand(landmarks: LandmarkLike[] | null): HandSample | null {
   const scale = Math.max(
     0.0001,
     (Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) +
-      Math.hypot(indexMcp.x - wrist.x, indexMcp.y - wrist.y)) /
-      2,
+      Math.hypot(indexMcp.x - wrist.x, indexMcp.y - wrist.y)) / 2,
   );
-
   return { centerX, centerY, scale };
 }
 
@@ -35,17 +32,9 @@ function getPairSample(frame: FSLMotionFrame): PairSample | null {
   const right = sampleHand(getHand(frame, "Right"));
   const left = sampleHand(getHand(frame, "Left"));
   if (!right || !left) return null;
-
   const scale = (right.scale + left.scale) / 2;
   const distance = Math.hypot(right.centerX - left.centerX, right.centerY - left.centerY) / scale;
   return { right, left, distance };
-}
-
-function median(values: number[]) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[middle - 1]! + sorted[middle]!) / 2 : sorted[middle]!;
 }
 
 function clamp01(value: number) {
@@ -53,51 +42,53 @@ function clamp01(value: number) {
 }
 
 /**
- * Scores the visual motion of the FSL CLOSE sign shown in the reference image:
- * two hands begin separated and move inward until they meet/are very close.
+ * Detects the recorded CLOSE motion as a two-hand closing gesture.
  *
- * This deliberately models the motion rather than matching a particular person's
- * hand pose, camera position, or exact frame timing. The score is 0..1.
+ * Unlike the previous template/DTW implementation, this deliberately does not
+ * require the camera to reproduce the exact recorded trajectory. It recognizes
+ * the robust motion characteristics of the recording: two hands are visible,
+ * separated, move toward one another, and finish close together.
  */
 export function scoreCloseSequence(sequence: FSLMotionFrame[]) {
-  if (sequence.length < 16) return 0;
+  if (sequence.length < 10) return 0;
 
-  const pairs = sequence.map(getPairSample).filter((sample): sample is PairSample => Boolean(sample));
-  if (pairs.length < 10) return 0;
+  // Work from recent raw frames and keep only frames where both hands are visible.
+  // MediaPipe can briefly drop one hand while the hands approach each other.
+  const pairs = sequence
+    .map(getPairSample)
+    .filter((sample): sample is PairSample => Boolean(sample));
+  if (pairs.length < 8) return 0;
 
-  // Use a recent gesture window so several seconds of idle hand movement do not
-  // dilute the closing motion. The sign normally completes within ~2 seconds.
-  const window = pairs.slice(-Math.min(30, pairs.length));
-  if (window.length < 10) return 0;
+  // At 80 ms sampling, this is about 0.8–2.4 seconds. Using the most recent
+  // window allows the detector to react while the gesture is still being made.
+  const window = pairs.slice(-30);
+  if (window.length < 8) return 0;
 
-  const firstCount = Math.max(3, Math.floor(window.length * 0.25));
-  const lastCount = Math.max(3, Math.floor(window.length * 0.25));
-  const startDistance = median(window.slice(0, firstCount).map((sample) => sample.distance));
-  const endDistance = median(window.slice(-lastCount).map((sample) => sample.distance));
+  const start = window[0]!;
+  const end = window[window.length - 1]!;
   const minDistance = Math.min(...window.map((sample) => sample.distance));
-  const maxDistance = Math.max(...window.map((sample) => sample.distance));
 
-  // The defining feature: the two palms get substantially closer together.
-  const closingRatio = (startDistance - endDistance) / Math.max(startDistance, 0.0001);
-  const closingScore = clamp01((closingRatio - 0.28) / 0.42);
+  // The recording starts with clearly separated hands and ends with them close.
+  const closingRatio = (start.distance - end.distance) / Math.max(start.distance, 0.0001);
+  const separationScore = clamp01((start.distance - 1.15) / 1.15);
+  const closeScore = clamp01((1.9 - end.distance) / 0.95);
+  const ratioScore = clamp01((closingRatio - 0.18) / 0.42);
 
-  // Prefer a clear open -> close trajectory instead of random hand movement.
-  let decreasingSteps = 0;
-  let meaningfulSteps = 0;
+  // Check that the distance generally decreases rather than simply changing
+  // because of unrelated hand movement. Allow some tracking noise/reversals.
+  let decreasing = 0;
+  let meaningful = 0;
   for (let i = 1; i < window.length; i += 1) {
     const delta = window[i - 1]!.distance - window[i]!.distance;
-    if (Math.abs(delta) > 0.018) {
-      meaningfulSteps += 1;
-      if (delta > 0) decreasingSteps += 1;
+    if (Math.abs(delta) >= 0.012) {
+      meaningful += 1;
+      if (delta > 0) decreasing += 1;
     }
   }
-  const directionScore = meaningfulSteps > 0 ? decreasingSteps / meaningfulSteps : 0;
+  const directionScore = meaningful ? decreasing / meaningful : 0;
 
-  // Require the hands to have actually started apart and ended close.
-  const startSeparationScore = clamp01((startDistance - 1.35) / 1.05);
-  const endTogetherScore = clamp01((1.55 - endDistance) / 0.75);
-
-  // Measure real motion so a static two-hand pose cannot fire the command.
+  // Confirm that the hands really moved, not merely that their normalized
+  // distance happened to change because of scale noise.
   let motionEnergy = 0;
   for (let i = 1; i < window.length; i += 1) {
     const previous = window[i - 1]!;
@@ -106,23 +97,25 @@ export function scoreCloseSequence(sequence: FSLMotionFrame[]) {
       Math.hypot(current.right.centerX - previous.right.centerX, current.right.centerY - previous.right.centerY) +
       Math.hypot(current.left.centerX - previous.left.centerX, current.left.centerY - previous.left.centerY);
   }
-  const motionScore = clamp01((motionEnergy - 0.18) / 0.75);
+  const motionScore = clamp01((motionEnergy - 0.08) / 0.55);
 
-  // A close gesture should finish near its closest point rather than merely
-  // passing through the center and opening again.
-  const finishScore = clamp01((minDistance + 0.18 - endDistance) / 0.42);
+  // Finishing close to the closest point is a useful discriminator.
+  const finishScore = clamp01((minDistance + 0.22 - end.distance) / 0.55);
 
+  // Keep the threshold intentionally reachable for webcam tracking.
   const score =
-    closingScore * 0.34 +
-    directionScore * 0.22 +
-    startSeparationScore * 0.14 +
-    endTogetherScore * 0.14 +
+    separationScore * 0.18 +
+    ratioScore * 0.28 +
+    directionScore * 0.24 +
+    closeScore * 0.16 +
     motionScore * 0.10 +
-    finishScore * 0.06;
+    finishScore * 0.04;
 
-  // Hard gates protect against false positives from ordinary two-hand motion.
-  if (startDistance < 1.45 || closingRatio < 0.28 || endDistance > 1.7) return 0;
-  if (directionScore < 0.48 || motionEnergy < 0.18) return 0;
+  if (start.distance < 1.15) return 0;
+  if (closingRatio < 0.18) return 0;
+  if (end.distance > 2.05) return 0;
+  if (directionScore < 0.38) return 0;
+  if (motionEnergy < 0.08) return 0;
 
   return clamp01(score);
 }
