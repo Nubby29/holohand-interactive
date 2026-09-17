@@ -92,7 +92,10 @@ export function useHandTracking(onSwipeDown: () => void) {
             return last.y - minY;
           };
 
-          // Whole-hand swipe: track palm (landmark 9, fallback 0)
+          // Whole-hand swipe: track palm (landmark 9, fallback 0).
+          // 0.19 ≈ a modest, natural hand movement — no need to swing
+          // the hand halfway across the screen.
+          const PALM_THRESHOLD = 0.19;
           const palmHist = trackRef.current;
           if (palm) palmHist.push({ t: now, y: palm.y });
           prune(palmHist);
