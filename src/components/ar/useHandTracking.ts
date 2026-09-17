@@ -116,9 +116,10 @@ export function useHandTracking(onSwipeDown: () => void) {
           // screen — catches the subtlest flicks.
           const REL_THRESHOLD = 0.055;
           const relHist = relTrackRef.current;
-          if (fingerTip && (wrist ?? knuckle)) {
-            const anchor = wrist ?? knuckle;
-            relHist.push({ t: now, y: fingerTip.y - anchor.y });
+          if (fingerTip && wrist) {
+            relHist.push({ t: now, y: fingerTip.y - wrist.y });
+          } else if (fingerTip && knuckle) {
+            relHist.push({ t: now, y: fingerTip.y - knuckle.y });
           }
           prune(relHist);
           const relDy = deltaY(relHist);
