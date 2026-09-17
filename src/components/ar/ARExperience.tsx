@@ -232,7 +232,7 @@ export default function ARExperience() {
         </div>
       )}
 
-      {signOpen && <SignLanguagePanel recognized={recognizedSigns} currentLetter={fslLetter} onClose={closeSign} />}
+      {signOpen && <SignLanguagePanel recognized={recognizedSigns} currentLetter={fslLetter} handsRef={handsRef} onClose={closeSign} />}
       {socialOpen && <SocialARPanel registerTarget={setTarget} onClose={closeSocial} onActivate={activate} />}
 
       {(menuOpen || socialOpen) && pointer.active && <div className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2" style={{ left: pointer.x, top: pointer.y }}><div className={`h-12 w-12 rounded-full border-2 ${hovered ? "border-[rgb(255,90,210)] shadow-[0_0_24px_rgba(255,90,210,0.65)]" : "border-[rgb(34,255,225)] shadow-[0_0_20px_rgba(34,255,225,0.45)]"}`}><div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(34,255,225)]" /></div></div>}
