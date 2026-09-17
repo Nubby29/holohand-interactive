@@ -30,6 +30,7 @@ export function useHandTracking(onSwipeDown: () => void) {
     active: false,
   });
   const [pinchPulse, setPinchPulse] = useState(0);
+  const [pinching, setPinching] = useState(false);
   const smoothRef = useRef<{ x: number; y: number } | null>(null);
   const pinchingRef = useRef(false);
 
@@ -85,13 +86,10 @@ export function useHandTracking(onSwipeDown: () => void) {
           const hand = lms[0] ?? [];
           const wrist = hand[0];
           const fingerTip = hand[8];
-          const knuckle = hand[5];
           const thumbTip = hand[4];
           const midKnuckle = hand[9];
 
           // Virtual pointer: index fingertip mapped into viewport space.
-          // The video is mirrored, so x is flipped. Exponential smoothing
-          // takes the jitter out of the reticle without adding lag.
           if (fingerTip) {
             const tx = (1 - fingerTip.x) * window.innerWidth;
             const ty = fingerTip.y * window.innerHeight;
@@ -103,22 +101,23 @@ export function useHandTracking(onSwipeDown: () => void) {
             setPointer({ x: s.x, y: s.y, active: true });
           }
 
-          // Pinch: thumb tip to index tip, normalised by hand size so the
-          // distance from the camera doesn't matter.
+          // Pinch: thumb tip to index tip, normalised by hand size. The
+          // boolean state is continuous so a pinch can also be used to grab
+          // and drag spatial objects; pinchPulse remains the click edge.
           if (thumbTip && fingerTip && wrist && midKnuckle) {
             const handSize =
               Math.hypot(midKnuckle.x - wrist.x, midKnuckle.y - wrist.y) || 0.0001;
             const pinchDist =
               Math.hypot(thumbTip.x - fingerTip.x, thumbTip.y - fingerTip.y) / handSize;
             const isPinching = pinchDist < 0.45;
+            setPinching(isPinching);
             if (isPinching && !pinchingRef.current) setPinchPulse((n) => n + 1);
             if (!isPinching && pinchDist > 0.6) pinchingRef.current = false;
             else if (isPinching) pinchingRef.current = true;
           }
 
           // Menu-open gesture: index + middle fingers raised while the other
-          // fingers remain folded. It must be held briefly, which prevents
-          // ordinary downward hand movement from opening the menu.
+          // fingers remain folded. It must be held briefly to avoid accidental opens.
           const isFingerExtended = (tipIndex: number, pipIndex: number) => {
             const tip = hand[tipIndex];
             const pip = hand[pipIndex];
@@ -149,10 +148,7 @@ export function useHandTracking(onSwipeDown: () => void) {
               twoFingerTriggeredRef.current = false;
             }
 
-            const progress = Math.min(
-              1,
-              (now - twoFingerStartRef.current) / TWO_FINGER_HOLD_MS,
-            );
+            const progress = Math.min(1, (now - twoFingerStartRef.current) / TWO_FINGER_HOLD_MS);
             setSwipeProgress(progress);
 
             if (
@@ -176,6 +172,7 @@ export function useHandTracking(onSwipeDown: () => void) {
           setSwipeProgress(0);
           smoothRef.current = null;
           pinchingRef.current = false;
+          setPinching(false);
           setPointer((p) => (p.active ? { ...p, active: false } : p));
         }
       };
@@ -204,6 +201,7 @@ export function useHandTracking(onSwipeDown: () => void) {
     swipeProgress,
     pointer,
     pinchPulse,
+    pinching,
     start,
   };
 }
