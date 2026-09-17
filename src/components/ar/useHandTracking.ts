@@ -28,6 +28,14 @@ export function useHandTracking(onSwipeDown: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [handPresent, setHandPresent] = useState(false);
   const [swipeProgress, setSwipeProgress] = useState(0);
+  const [pointer, setPointer] = useState<{ x: number; y: number; active: boolean }>({
+    x: 0,
+    y: 0,
+    active: false,
+  });
+  const [pinchPulse, setPinchPulse] = useState(0);
+  const smoothRef = useRef<{ x: number; y: number } | null>(null);
+  const pinchingRef = useRef(false);
 
   const start = useCallback(async () => {
     if (status === "loading" || status === "ready") return;
