@@ -273,7 +273,53 @@ export default function ARExperience() {
             {active ? `module engaged · ${active}` : "awaiting selection"}
           </p>
         </div>
+
+        {menuOpen && (
+          <p className="mt-4 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-[rgb(34,255,225)]/80 uppercase">
+            <Crosshair className="h-3.5 w-3.5" />
+            point &amp; hold or pinch to select
+          </p>
+        )}
       </div>
+
+      {/* Virtual pointer reticle */}
+      {menuOpen && pointer.active && status === "ready" && (
+        <div
+          className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2"
+          style={{ left: pointer.x, top: pointer.y }}
+        >
+          <svg width="76" height="76" viewBox="0 0 76 76" className="overflow-visible">
+            <circle
+              cx="38"
+              cy="38"
+              r="22"
+              fill="none"
+              stroke={hovered ? "rgba(255,90,210,0.5)" : "rgba(34,255,225,0.45)"}
+              strokeWidth="2"
+            />
+            <circle
+              cx="38"
+              cy="38"
+              r="22"
+              fill="none"
+              stroke={hovered ? "rgb(255,90,210)" : "rgb(34,255,225)"}
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray={2 * Math.PI * 22}
+              strokeDashoffset={2 * Math.PI * 22 * (1 - dwell)}
+              transform="rotate(-90 38 38)"
+              style={{ filter: "drop-shadow(0 0 8px rgba(34,255,225,0.9))" }}
+            />
+            <circle cx="38" cy="38" r="4" fill="rgb(34,255,225)" />
+            <path
+              d="M38 6 V18 M38 58 V70 M6 38 H18 M58 38 H70"
+              stroke="rgba(34,255,225,0.8)"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }
