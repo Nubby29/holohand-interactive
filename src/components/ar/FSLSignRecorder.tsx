@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { Download, Play, Square, Trash2, Upload } from "lucide-react";
 import type { HandState, Landmark } from "./useHandTracking";
 
@@ -57,7 +58,7 @@ function normalizeHand(landmarks: Landmark[]) {
   ] as [number, number, number]);
 }
 
-export function FSLSignRecorder({ handsRef }: { handsRef: React.MutableRefObject<HandState> }) {
+export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandState> }) {
   const [label, setLabel] = useState("");
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -67,15 +68,18 @@ export function FSLSignRecorder({ handsRef }: { handsRef: React.MutableRefObject
   const framesRef = useRef<FSLRecordedFrame[]>([]);
   const lastSampleRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const recordingRef = useRef(false);
 
   useEffect(() => {
     return () => {
+      recordingRef.current = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
   const stopRecording = () => {
-    if (!recording) return;
+    if (!recordingRef.current) return;
+    recordingRef.current = false;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     setRecording(false);
@@ -84,6 +88,7 @@ export function FSLSignRecorder({ handsRef }: { handsRef: React.MutableRefObject
     const frames = framesRef.current;
     const durationMs = Math.max(0, Math.round(performance.now() - startedAtRef.current));
     if (!cleanLabel || frames.length < 5) {
+      framesRef.current = [];
       setMessage("Recording discarded. Enter a sign name and record a little longer.");
       return;
     }
@@ -109,16 +114,18 @@ export function FSLSignRecorder({ handsRef }: { handsRef: React.MutableRefObject
       setMessage("Enter the FSL sign name first, for example CLOSE.");
       return;
     }
-    if (recording) return;
+    if (recordingRef.current) return;
 
     framesRef.current = [];
     startedAtRef.current = performance.now();
     lastSampleRef.current = 0;
     setElapsed(0);
     setMessage(`Recording ${cleanLabel.toUpperCase()}… perform the sign naturally.`);
+    recordingRef.current = true;
     setRecording(true);
 
     const loop = (now: number) => {
+      if (!recordingRef.current) return;
       const elapsedNow = now - startedAtRef.current;
       setElapsed(Math.min(MAX_RECORDING_MS, elapsedNow));
 
@@ -141,9 +148,7 @@ export function FSLSignRecorder({ handsRef }: { handsRef: React.MutableRefObject
           })
           .filter((hand): hand is NonNullable<typeof hand> => Boolean(hand));
 
-        if (hands.length) {
-          framesRef.current.push({ t: Math.round(elapsedNow), hands });
-        }
+        if (hands.length) framesRef.current.push({ t: Math.round(elapsedNow), hands });
       }
       rafRef.current = requestAnimationFrame(loop);
     };
