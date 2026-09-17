@@ -221,11 +221,16 @@ export default function ARExperience() {
               holo menu
             </p>
             <button
+              ref={setTarget("close")}
               onClick={() => {
                 sfx.close();
                 setMenuOpen(false);
               }}
-              className="rounded-full border border-white/20 p-1.5 text-white/70 transition hover:border-[rgb(255,90,210)] hover:text-[rgb(255,90,210)]"
+              className={`rounded-full border p-1.5 transition hover:border-[rgb(255,90,210)] hover:text-[rgb(255,90,210)] ${
+                hovered === "close"
+                  ? "border-[rgb(255,90,210)] text-[rgb(255,90,210)] shadow-[0_0_20px_rgba(255,90,210,0.6)]"
+                  : "border-white/20 text-white/70"
+              }`}
               aria-label="Close menu"
             >
               <X className="h-4 w-4" />
@@ -236,6 +241,7 @@ export default function ARExperience() {
             {MENU_ITEMS.map(({ id, label, desc, Icon }, i) => (
               <button
                 key={id}
+                ref={setTarget(id)}
                 onMouseEnter={() => sfx.hover()}
                 onClick={() => {
                   sfx.select();
@@ -245,12 +251,20 @@ export default function ARExperience() {
                 className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition duration-300 ${
                   active === id
                     ? "border-[rgb(255,90,210)] bg-[rgba(255,90,210,0.12)] shadow-[0_0_30px_rgba(255,90,210,0.35)]"
-                    : "border-[rgba(34,255,225,0.3)] bg-white/5 hover:border-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.1)]"
+                    : hovered === id
+                      ? "border-[rgb(34,255,225)] bg-[rgba(34,255,225,0.14)] shadow-[0_0_34px_rgba(34,255,225,0.45)]"
+                      : "border-[rgba(34,255,225,0.3)] bg-white/5 hover:border-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.1)]"
                 }`}
               >
                 <Icon className="h-5 w-5 text-[rgb(34,255,225)] transition group-hover:scale-110" />
                 <p className="mt-3 text-sm font-semibold text-white">{label}</p>
                 <p className="mt-0.5 font-mono text-[11px] tracking-wider text-white/55">{desc}</p>
+                {hovered === id && (
+                  <span
+                    className="absolute inset-x-0 bottom-0 h-1 bg-[rgb(34,255,225)] shadow-[0_0_14px_rgba(34,255,225,0.9)]"
+                    style={{ width: `${Math.round(dwell * 100)}%` }}
+                  />
+                )}
               </button>
             ))}
           </div>
