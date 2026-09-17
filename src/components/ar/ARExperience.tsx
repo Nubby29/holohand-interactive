@@ -49,6 +49,21 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, [socialOpen, signOpen]);
 
+  // FSL CLOSE is a dedicated close-only command. Unlike the two-finger hold,
+  // it must never open the radial menu when nothing is currently active.
+  const handleCloseGesture = useCallback(() => {
+    if (!menuOpen && !socialOpen && !signOpen) return;
+
+    sfx.close();
+    setMenuOpen(false);
+    setSocialOpen(false);
+    setSignOpen(false);
+    setRecognizedSigns("");
+    setActive(null);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 700);
+  }, [menuOpen, socialOpen, signOpen]);
+
   const {
     videoRef,
     handsRef,
@@ -61,7 +76,7 @@ export default function ARExperience() {
     pinching,
     fslLetter,
     start,
-  } = useHandTracking(handleTwoFingerHold);
+  } = useHandTracking(handleTwoFingerHold, handleCloseGesture);
 
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
