@@ -7,6 +7,14 @@ export type HandState = {
   handedness: string[];
 };
 
+export type TwoHandTransform = {
+  active: boolean;
+  centerX: number;
+  centerY: number;
+  distance: number;
+  angle: number;
+};
+
 type Status = "idle" | "loading" | "ready" | "error";
 
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
@@ -31,11 +39,16 @@ export function useHandTracking(onSwipeDown: () => void) {
   });
   const [pinchPulse, setPinchPulse] = useState(0);
   const [pinching, setPinching] = useState(false);
+  const [twoHandTransform, setTwoHandTransform] = useState<TwoHandTransform>({
+    active: false,
+    centerX: 0,
+    centerY: 0,
+    distance: 0,
+    angle: 0,
+  });
   const smoothRef = useRef<{ x: number; y: number } | null>(null);
   const pinchingRef = useRef(false);
 
-  // Menu-open gesture state. The old downward swipe has been replaced with
-  // an intentional two-finger hold: index + middle finger extended together.
   const twoFingerStartRef = useRef<number | null>(null);
   const twoFingerTriggeredRef = useRef(false);
   const lastTwoFingerTriggerRef = useRef(0);
@@ -82,6 +95,17 @@ export function useHandTracking(onSwipeDown: () => void) {
         };
         setHandPresent(lms.length > 0);
 
+        const getPinch = (hand: Landmark[]) => {
+          const wrist = hand[0];
+          const indexTip = hand[8];
+          const thumbTip = hand[4];
+          const middleMcp = hand[9];
+          if (!wrist || !indexTip || !thumbTip || !middleMcp) return false;
+          const handSize = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.0001;
+          const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / handSize;
+          return pinchDist < 0.45;
+        };
+
         if (lms.length > 0) {
           const hand = lms[0] ?? [];
           const wrist = hand[0];
@@ -89,7 +113,6 @@ export function useHandTracking(onSwipeDown: () => void) {
           const thumbTip = hand[4];
           const midKnuckle = hand[9];
 
-          // Virtual pointer: index fingertip mapped into viewport space.
           if (fingerTip) {
             const tx = (1 - fingerTip.x) * window.innerWidth;
             const ty = fingerTip.y * window.innerHeight;
@@ -101,14 +124,9 @@ export function useHandTracking(onSwipeDown: () => void) {
             setPointer({ x: s.x, y: s.y, active: true });
           }
 
-          // Pinch: thumb tip to index tip, normalised by hand size. The
-          // boolean state is continuous so a pinch can also be used to grab
-          // and drag spatial objects; pinchPulse remains the click edge.
           if (thumbTip && fingerTip && wrist && midKnuckle) {
-            const handSize =
-              Math.hypot(midKnuckle.x - wrist.x, midKnuckle.y - wrist.y) || 0.0001;
-            const pinchDist =
-              Math.hypot(thumbTip.x - fingerTip.x, thumbTip.y - fingerTip.y) / handSize;
+            const handSize = Math.hypot(midKnuckle.x - wrist.x, midKnuckle.y - wrist.y) || 0.0001;
+            const pinchDist = Math.hypot(thumbTip.x - fingerTip.x, thumbTip.y - fingerTip.y) / handSize;
             const isPinching = pinchDist < 0.45;
             setPinching(isPinching);
             if (isPinching && !pinchingRef.current) setPinchPulse((n) => n + 1);
@@ -116,8 +134,6 @@ export function useHandTracking(onSwipeDown: () => void) {
             else if (isPinching) pinchingRef.current = true;
           }
 
-          // Menu-open gesture: index + middle fingers raised while the other
-          // fingers remain folded. It must be held briefly to avoid accidental opens.
           const isFingerExtended = (tipIndex: number, pipIndex: number) => {
             const tip = hand[tipIndex];
             const pip = hand[pipIndex];
@@ -136,21 +152,19 @@ export function useHandTracking(onSwipeDown: () => void) {
             return tipFromWrist < pipFromWrist * 1.08;
           };
 
-          const indexRaised = isFingerExtended(8, 6);
-          const middleRaised = isFingerExtended(12, 10);
-          const ringFolded = isFingerFolded(16, 14);
-          const pinkyFolded = isFingerFolded(20, 18);
-          const twoFingerGesture = indexRaised && middleRaised && ringFolded && pinkyFolded;
+          const twoFingerGesture =
+            isFingerExtended(8, 6) &&
+            isFingerExtended(12, 10) &&
+            isFingerFolded(16, 14) &&
+            isFingerFolded(20, 18);
 
           if (twoFingerGesture) {
             if (twoFingerStartRef.current === null) {
               twoFingerStartRef.current = now;
               twoFingerTriggeredRef.current = false;
             }
-
             const progress = Math.min(1, (now - twoFingerStartRef.current) / TWO_FINGER_HOLD_MS);
             setSwipeProgress(progress);
-
             if (
               progress >= 1 &&
               !twoFingerTriggeredRef.current &&
@@ -174,6 +188,37 @@ export function useHandTracking(onSwipeDown: () => void) {
           pinchingRef.current = false;
           setPinching(false);
           setPointer((p) => (p.active ? { ...p, active: false } : p));
+        }
+
+        // Two-hand transform gesture: pinch with both hands. The midpoint gives
+        // the shared manipulation anchor, distance drives scale, and angle drives rotation.
+        if (lms.length >= 2) {
+          const first = lms[0] ?? [];
+          const second = lms[1] ?? [];
+          const firstIndex = first[8];
+          const secondIndex = second[8];
+          const bothPinching = getPinch(first) && getPinch(second);
+          if (firstIndex && secondIndex && bothPinching) {
+            const p1 = {
+              x: (1 - firstIndex.x) * window.innerWidth,
+              y: firstIndex.y * window.innerHeight,
+            };
+            const p2 = {
+              x: (1 - secondIndex.x) * window.innerWidth,
+              y: secondIndex.y * window.innerHeight,
+            };
+            setTwoHandTransform({
+              active: true,
+              centerX: (p1.x + p2.x) / 2,
+              centerY: (p1.y + p2.y) / 2,
+              distance: Math.hypot(p2.x - p1.x, p2.y - p1.y),
+              angle: Math.atan2(p2.y - p1.y, p2.x - p1.x),
+            });
+          } else {
+            setTwoHandTransform((current) => (current.active ? { ...current, active: false } : current));
+          }
+        } else {
+          setTwoHandTransform((current) => (current.active ? { ...current, active: false } : current));
         }
       };
       loop();
@@ -202,6 +247,7 @@ export function useHandTracking(onSwipeDown: () => void) {
     pointer,
     pinchPulse,
     pinching,
+    twoHandTransform,
     start,
   };
 }
