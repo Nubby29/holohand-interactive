@@ -42,53 +42,70 @@ function clamp01(value: number) {
 }
 
 /**
- * Detects the recorded CLOSE motion as a two-hand closing gesture.
+ * Detect the user's recorded FSL CLOSE motion.
  *
- * Unlike the previous template/DTW implementation, this deliberately does not
- * require the camera to reproduce the exact recorded trajectory. It recognizes
- * the robust motion characteristics of the recording: two hands are visible,
- * separated, move toward one another, and finish close together.
+ * The recording is not simply "hands finish together". Its distinctive motion
+ * is a valley: the hands begin separated, move together to a tight minimum,
+ * then separate again. This implementation therefore matches the temporal
+ * distance shape instead of requiring a particular camera position or pose.
  */
 export function scoreCloseSequence(sequence: FSLMotionFrame[]) {
-  if (sequence.length < 10) return 0;
+  if (sequence.length < 12) return 0;
 
-  // Work from recent raw frames and keep only frames where both hands are visible.
-  // MediaPipe can briefly drop one hand while the hands approach each other.
   const pairs = sequence
     .map(getPairSample)
     .filter((sample): sample is PairSample => Boolean(sample));
   if (pairs.length < 8) return 0;
 
-  // At 80 ms sampling, this is about 0.8–2.4 seconds. Using the most recent
-  // window allows the detector to react while the gesture is still being made.
-  const window = pairs.slice(-30);
+  // The live hook keeps up to ~4.4 seconds, but the sign itself is about 1.6 s
+  // while both hands are visible. Analyze the most recent 24 paired samples.
+  const window = pairs.slice(-24);
   if (window.length < 8) return 0;
 
-  const start = window[0]!;
-  const end = window[window.length - 1]!;
-  const minDistance = Math.min(...window.map((sample) => sample.distance));
+  const distances = window.map((sample) => sample.distance);
+  const minDistance = Math.min(...distances);
+  const minIndex = distances.indexOf(minDistance);
+  const first = distances[0]!;
+  const last = distances[distances.length - 1]!;
 
-  // The recording starts with clearly separated hands and ends with them close.
-  const closingRatio = (start.distance - end.distance) / Math.max(start.distance, 0.0001);
-  const separationScore = clamp01((start.distance - 1.15) / 1.15);
-  const closeScore = clamp01((1.9 - end.distance) / 0.95);
-  const ratioScore = clamp01((closingRatio - 0.18) / 0.42);
+  // The user's recording: ~0.60 -> ~0.16 -> ~0.63. Require a pronounced
+  // inward movement and a pronounced outward movement after the minimum.
+  const inwardAmount = first - minDistance;
+  const outwardAmount = last - minDistance;
+  const inwardScore = clamp01((inwardAmount - 0.18) / 0.28);
+  const outwardScore = clamp01((outwardAmount - 0.16) / 0.28);
 
-  // Check that the distance generally decreases rather than simply changing
-  // because of unrelated hand movement. Allow some tracking noise/reversals.
-  let decreasing = 0;
-  let meaningful = 0;
-  for (let i = 1; i < window.length; i += 1) {
-    const delta = window[i - 1]!.distance - window[i]!.distance;
-    if (Math.abs(delta) >= 0.012) {
+  // The minimum should occur after the beginning and before the end, not at an
+  // edge caused by random tracking noise. The recording reaches its minimum
+  // around the middle of the paired-hand sequence.
+  const position = minIndex / Math.max(1, distances.length - 1);
+  const positionScore = clamp01(1 - Math.abs(position - 0.55) / 0.40);
+
+  // Measure how consistently the distance decreases before the minimum and
+  // increases afterward. Small reversals are allowed because webcam landmarks
+  // naturally jitter by a few pixels.
+  const direction = (from: number, to: number, wantDecrease: boolean) => {
+    let meaningful = 0;
+    let correct = 0;
+    for (let i = from + 1; i <= to; i += 1) {
+      const delta = distances[i - 1]! - distances[i]!;
+      if (Math.abs(delta) < 0.012) continue;
       meaningful += 1;
-      if (delta > 0) decreasing += 1;
+      if (wantDecrease ? delta > 0 : delta < 0) correct += 1;
     }
-  }
-  const directionScore = meaningful ? decreasing / meaningful : 0;
+    return meaningful >= 2 ? correct / meaningful : 0;
+  };
 
-  // Confirm that the hands really moved, not merely that their normalized
-  // distance happened to change because of scale noise.
+  const inwardDirection = direction(0, minIndex, true);
+  const outwardDirection = direction(minIndex, distances.length - 1, false);
+  const directionScore = (inwardDirection + outwardDirection) / 2;
+
+  // Require the valley to be reasonably deep relative to the starting distance.
+  const totalChange = first + last - 2 * minDistance;
+  const shapeScore = clamp01((totalChange - 0.42) / 0.45);
+
+  // Confirm actual hand movement rather than a distance change caused solely by
+  // normalization/scale noise.
   let motionEnergy = 0;
   for (let i = 1; i < window.length; i += 1) {
     const previous = window[i - 1]!;
@@ -99,22 +116,18 @@ export function scoreCloseSequence(sequence: FSLMotionFrame[]) {
   }
   const motionScore = clamp01((motionEnergy - 0.08) / 0.55);
 
-  // Finishing close to the closest point is a useful discriminator.
-  const finishScore = clamp01((minDistance + 0.22 - end.distance) / 0.55);
-
-  // Keep the threshold intentionally reachable for webcam tracking.
   const score =
-    separationScore * 0.18 +
-    ratioScore * 0.28 +
+    inwardScore * 0.24 +
+    outwardScore * 0.24 +
     directionScore * 0.24 +
-    closeScore * 0.16 +
-    motionScore * 0.10 +
-    finishScore * 0.04;
+    shapeScore * 0.16 +
+    positionScore * 0.06 +
+    motionScore * 0.06;
 
-  if (start.distance < 1.15) return 0;
-  if (closingRatio < 0.18) return 0;
-  if (end.distance > 2.05) return 0;
-  if (directionScore < 0.38) return 0;
+  if (inwardAmount < 0.22) return 0;
+  if (outwardAmount < 0.20) return 0;
+  if (minIndex < 2 || minIndex > distances.length - 3) return 0;
+  if (inwardDirection < 0.40 || outwardDirection < 0.40) return 0;
   if (motionEnergy < 0.08) return 0;
 
   return clamp01(score);
