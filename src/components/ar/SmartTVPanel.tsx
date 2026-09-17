@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -7,7 +7,6 @@ import {
   Home,
   Link2,
   Minus,
-  Pause,
   Play,
   Power,
   RotateCcw,
@@ -80,7 +79,7 @@ export function SmartTVPanel({ registerTarget, onActivate }: SmartTVPanelProps) 
     onActivate(`tv-${command}`);
   }, [onActivate]);
 
-  const Button = ({ id, label, icon, command, wide = false }: { id: string; label: string; icon: React.ReactNode; command: TVCommand; wide?: boolean }) => (
+  const Button = ({ id, label, icon, command, wide = false }: { id: string; label: string; icon: ReactNode; command: TVCommand; wide?: boolean }) => (
     <button
       ref={registerTarget(id)}
       onClick={() => send(command)}
