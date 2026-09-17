@@ -17,22 +17,25 @@ const ROWS: KeyDef[][] = [
 
 const ALL_KEYS = ROWS.flat();
 
-function isPinching(hand: HandState["landmarks"][number]) {
+function getPinchDistance(hand: HandState["landmarks"][number]) {
   const wrist = hand[0];
   const thumb = hand[4];
   const index = hand[8];
   const middleMcp = hand[9];
-  if (!wrist || !thumb || !index || !middleMcp) return false;
+  if (!wrist || !thumb || !index || !middleMcp) return null;
   const handSize = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.0001;
-  return Math.hypot(thumb.x - index.x, thumb.y - index.y) / handSize < 0.45;
+  return Math.hypot(thumb.x - index.x, thumb.y - index.y) / handSize;
 }
 
 export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObject<HandState> }) {
   const [text, setText] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
+  const [pressing, setPressing] = useState<string | null>(null);
   const keyRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
-  const previousPinchRef = useRef(false);
+  const pinchLockedRef = useRef(false);
+  const hoverCandidateRef = useRef<string | null>(null);
+  const hoverSinceRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
   const keyMap = useMemo(() => new Map(ALL_KEYS.map((key) => [key.id, key])), []);
@@ -45,42 +48,67 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
       if (!hand) {
         setHovered(null);
         setTyping(false);
-        previousPinchRef.current = false;
+        setPressing(null);
+        pinchLockedRef.current = false;
+        hoverCandidateRef.current = null;
         return;
       }
 
       const index = hand[8];
-      if (!index) return;
+      const pinchDistance = getPinchDistance(hand);
+      if (!index || pinchDistance === null) return;
 
       // Match the mirrored webcam pointer used by HoloHand.
       const x = (1 - index.x) * window.innerWidth;
       const y = index.y * window.innerHeight;
-      const pinch = isPinching(hand);
-      let hit: string | null = null;
 
+      // Use hysteresis so tiny landmark jitter cannot repeatedly toggle pinch on/off.
+      // Engage below 0.38; don't release until the fingers separate above 0.58.
+      const wasLocked = pinchLockedRef.current;
+      const pinch = wasLocked ? pinchDistance < 0.58 : pinchDistance < 0.38;
+      setTyping(pinch);
+
+      let hit: string | null = null;
       keyRefs.current.forEach((el, id) => {
         if (hit || !el) return;
         const rect = el.getBoundingClientRect();
         if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) hit = id;
       });
 
+      if (hit !== hoverCandidateRef.current) {
+        hoverCandidateRef.current = hit;
+        hoverSinceRef.current = performance.now();
+      }
       setHovered(hit);
-      setTyping(pinch);
 
-      // A pinch transition is a single key press. Holding the pinch does not repeat.
-      if (pinch && !previousPinchRef.current && hit) {
-        const key = keyMap.get(hit);
-        if (key) {
-          setText((current) => {
-            if (key.value === "BACKSPACE") return current.slice(0, -1);
-            if (key.value === "CLEAR") return "";
-            if (current.length >= 120) return current;
-            return current + key.value;
-          });
+      // A pinch is one press. The same pinch remains locked until the fingers clearly release.
+      // The hover must also be stable briefly, preventing accidental presses while crossing keys.
+      if (pinch && !wasLocked) {
+        pinchLockedRef.current = true;
+        if (hit && performance.now() - hoverSinceRef.current >= 90) {
+          const key = keyMap.get(hit);
+          if (key) {
+            setPressing(hit);
+            setText((current) => {
+              if (key.value === "BACKSPACE") return current.slice(0, -1);
+              if (key.value === "CLEAR") return "";
+              if (current.length >= 120) return current;
+              return current + key.value;
+            });
+            window.setTimeout(() => setPressing((current) => (current === hit ? null : current)), 120);
+          }
         }
       }
 
-      previousPinchRef.current = pinch;
+      // If the pinch started before the finger entered a key, allow that same pinch
+      // to press once after the hover becomes stable, but never more than once.
+      if (pinch && pinchLockedRef.current && !wasLocked && !hit) {
+        // Nothing to do; the user must aim at a key before the next pinch.
+      }
+
+      if (!pinch) {
+        pinchLockedRef.current = false;
+      }
     };
 
     loop();
@@ -109,28 +137,28 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
         {text && <span className="ml-1 inline-block h-5 w-px animate-pulse bg-[rgb(34,255,225)] align-middle" />}
       </div>
 
-      <div className="mt-3 space-y-1.5 select-none">
+      <div className="mt-3 space-y-2 select-none">
         {ROWS.map((row, rowIndex) => (
-          <div key={rowIndex} className="flex justify-center gap-1.5">
+          <div key={rowIndex} className="flex justify-center gap-2">
             {row.map((key) => (
               <button
                 key={key.id}
                 ref={(el) => keyRefs.current.set(key.id, el)}
                 type="button"
                 onClick={() => {
-                  setText((current) => key.value === "BACKSPACE" ? current.slice(0, -1) : key.value === "CLEAR" ? "" : current + key.value);
+                  setText((current) => key.value === "BACKSPACE" ? current.slice(0, -1) : key.value === "CLEAR" ? "" : current.length >= 120 ? current : current + key.value);
                 }}
-                className={`h-9 rounded-lg border font-mono text-[10px] tracking-wider transition-all ${key.extraWide ? "w-36" : key.wide ? "w-16" : "w-8 sm:w-10"} ${hovered === key.id ? "scale-105 border-[rgb(34,255,225)] bg-[rgba(34,255,225,0.2)] text-white shadow-[0_0_20px_rgba(34,255,225,0.4)]" : "border-white/10 bg-white/[0.035] text-white/55 hover:border-white/25 hover:text-white"}`}
+                className={`h-11 rounded-lg border font-mono text-[11px] tracking-wider transition-all ${key.extraWide ? "w-40" : key.wide ? "w-20" : "w-10 sm:w-12"} ${hovered === key.id ? "scale-105 border-[rgb(34,255,225)] bg-[rgba(34,255,225,0.2)] text-white shadow-[0_0_20px_rgba(34,255,225,0.4)]" : "border-white/10 bg-white/[0.035] text-white/55 hover:border-white/25 hover:text-white"} ${pressing === key.id ? "scale-95 border-[rgb(255,90,210)] bg-[rgba(255,90,210,0.28)] shadow-[0_0_28px_rgba(255,90,210,0.6)]" : ""}`}
                 aria-label={key.id === "SPACE" ? "Space" : key.id === "BACKSPACE" ? "Backspace" : key.id === "CLEAR" ? "Clear" : key.label}
               >
-                {key.id === "BACKSPACE" ? <Delete className="mx-auto h-3.5 w-3.5" /> : key.id === "SPACE" ? <span className="flex items-center justify-center gap-1"><Space className="h-3 w-3" />SPACE</span> : key.label}
+                {key.id === "BACKSPACE" ? <Delete className="mx-auto h-4 w-4" /> : key.id === "SPACE" ? <span className="flex items-center justify-center gap-1"><Space className="h-3 w-3" />SPACE</span> : key.label}
               </button>
             ))}
           </div>
         ))}
       </div>
 
-      <p className="mt-3 text-center font-mono text-[7px] tracking-widest text-white/25 uppercase">Pinch once = one key · move index finger to aim</p>
+      <p className="mt-3 text-center font-mono text-[7px] tracking-widest text-white/25 uppercase">Pinch once = one key · release fully · move index finger to aim</p>
     </section>
   );
 }
