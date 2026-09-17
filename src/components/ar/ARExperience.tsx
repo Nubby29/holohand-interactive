@@ -37,6 +37,7 @@ export default function ARExperience() {
     swipeProgress,
     pointer,
     pinchPulse,
+    pinching,
     twoHandTransform,
     start,
   } = useHandTracking(handleTwoFingerRaise);
@@ -46,9 +47,7 @@ export default function ARExperience() {
   const hoverSoundRef = useRef<string | null>(null);
 
   const setTarget = useCallback(
-    (id: string) => (el: HTMLElement | null) => {
-      targetsRef.current.set(id, el);
-    },
+    (id: string) => (el: HTMLElement | null) => targetsRef.current.set(id, el),
     [],
   );
 
@@ -74,9 +73,7 @@ export default function ARExperience() {
     targetsRef.current.forEach((el, id) => {
       if (!el || found) return;
       const r = el.getBoundingClientRect();
-      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom) {
-        found = id;
-      }
+      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom) found = id;
     });
     setHovered(found);
     if (found && hoverSoundRef.current !== found) {
@@ -97,11 +94,10 @@ export default function ARExperience() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_35%,rgba(2,6,16,0.85)_100%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-25 [background-image:repeating-linear-gradient(0deg,rgba(34,255,225,0.14)_0px,rgba(34,255,225,0.14)_1px,transparent_1px,transparent_4px)]" />
       <HandOverlay handsRef={handsRef} enabled={hud && status === "ready"} />
-
       {flash && <div className="pointer-events-none absolute inset-0 animate-[pulse_0.6s_ease-out] bg-[rgba(34,255,225,0.12)]" />}
 
       {status === "ready" && !menuOpen && (
-        <SpatialHologram pointer={pointer} pinching={twoHandTransform.active || false} twoHandTransform={twoHandTransform} />
+        <SpatialHologram pointer={pointer} pinching={pinching} twoHandTransform={twoHandTransform} />
       )}
 
       <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 p-5">
@@ -122,19 +118,14 @@ export default function ARExperience() {
             <h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2>
             <p className="mt-2 text-sm text-white/65">Allow camera access, then raise your index and middle fingers together for a moment to summon the holographic menu.</p>
             {error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}
-            <button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50">
-              <Camera className="h-4 w-4" />
-              {status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}
-            </button>
+            <button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50"><Camera className="h-4 w-4" />{status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}</button>
           </div>
         </div>
       )}
 
       {status === "ready" && (
         <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 text-center">
-          <div className="mx-auto h-1.5 w-52 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_14px_rgba(34,255,225,0.9)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} />
-          </div>
+          <div className="mx-auto h-1.5 w-52 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_14px_rgba(34,255,225,0.9)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div>
           <p className="mt-2 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-white/70 uppercase"><Waves className="h-3.5 w-3.5 text-[rgb(255,90,210)]" />raise index + middle to {menuOpen ? "stay active" : "summon"}</p>
           {!menuOpen && <p className="mt-1 font-mono text-[10px] tracking-widest text-white/45 uppercase">point · pinch + drag · two-hand pinch to rotate + scale</p>}
         </div>
