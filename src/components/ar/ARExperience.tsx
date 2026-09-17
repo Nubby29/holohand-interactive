@@ -40,10 +40,11 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, [socialOpen]);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } = useHandTracking(handleTwoFingerHold);
+  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, pinching, start } = useHandTracking(handleTwoFingerHold);
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
   const hoverSoundRef = useRef<string | null>(null);
+  const scrollPointerRef = useRef<{ x: number; y: number } | null>(null);
   const setTarget = useCallback((id: string) => (el: HTMLElement | null) => targetsRef.current.set(id, el), []);
 
   const activate = useCallback((id: string) => {
@@ -92,6 +93,35 @@ export default function ARExperience() {
     if (pinchPulse && interactionOpen && hovered) activate(hovered);
   }, [pinchPulse, menuOpen, socialOpen, hovered, activate]);
 
+  // Pinch + drag scrolls the open Social surface. The scrollable ancestor
+  // under the hand pointer is updated directly, so normal pinch buttons
+  // remain interactive while dragging anywhere over the feed.
+  useEffect(() => {
+    if (!socialOpen || !pointer.active || !pinching) {
+      scrollPointerRef.current = null;
+      return;
+    }
+
+    const previous = scrollPointerRef.current;
+    scrollPointerRef.current = { x: pointer.x, y: pointer.y };
+    if (!previous) return;
+
+    const dy = pointer.y - previous.y;
+    if (Math.abs(dy) < 0.2) return;
+
+    const element = document.elementFromPoint(pointer.x, pointer.y);
+    let node: HTMLElement | null = element instanceof HTMLElement ? element : null;
+    while (node) {
+      const canScroll = node.scrollHeight > node.clientHeight + 2;
+      const style = window.getComputedStyle(node);
+      if (canScroll && (style.overflowY === "auto" || style.overflowY === "scroll")) {
+        node.scrollTop = Math.max(0, Math.min(node.scrollHeight - node.clientHeight, node.scrollTop - dy * 1.6));
+        break;
+      }
+      node = node.parentElement;
+    }
+  }, [pointer, pinching, socialOpen]);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
@@ -107,7 +137,7 @@ export default function ARExperience() {
 
       {status !== "ready" && <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm"><div className="max-w-md rounded-2xl border border-[rgba(34,255,225,0.35)] bg-black/60 p-8 text-center shadow-[0_0_60px_rgba(34,255,225,0.25)]"><Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" /><h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2><p className="mt-2 text-sm text-white/65">Allow camera access, then raise your index and middle fingers together and hold to summon the radial menu.</p>{error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}<button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50"><Radio className="h-4 w-4" />{status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}</button></div></div>}
 
-      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select</p>}</div>}
+      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select · pinch + drag to scroll</p>}</div>}
 
       {menuOpen && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
