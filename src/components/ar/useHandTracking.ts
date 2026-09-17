@@ -19,6 +19,7 @@ export function useHandTracking(onSwipeDown: () => void) {
   const rafRef = useRef<number | null>(null);
   const trackRef = useRef<Array<{ t: number; y: number }>>([]);
   const fingerTrackRef = useRef<Array<{ t: number; y: number }>>([]);
+  const relTrackRef = useRef<Array<{ t: number; y: number }>>([]);
   const lastSwipeRef = useRef(0);
   const swipeCbRef = useRef(onSwipeDown);
   swipeCbRef.current = onSwipeDown;
@@ -71,45 +72,78 @@ export function useHandTracking(onSwipeDown: () => void) {
         if (lms.length > 0) {
           const hand = lms[0] ?? [];
           const palm = hand[9] ?? hand[0];
+          const wrist = hand[0];
           const fingerTip = hand[8];
+          const knuckle = hand[5];
 
           const windowMs = 700;
           const prune = (hist: Array<{ t: number; y: number }>) => {
             while (hist.length && now - (hist[0]?.t ?? now) > windowMs) hist.shift();
           };
+          // Downward stroke distance measured from the HIGHEST point reached
+          // in the window (peak) to the current position. This survives brief
+          // holds/pauses mid-slide — pausing at the top doesn't reset progress,
+          // and the stroke completes the moment the slide continues downward.
           const deltaY = (hist: Array<{ t: number; y: number }>) => {
-            const first = hist[0];
             const last = hist[hist.length - 1];
-            return hist.length > 1 && first && last ? last.y - first.y : 0;
+            if (!last || hist.length < 2) return 0;
+            let minY = Infinity;
+            for (const p of hist) if (p.y < minY) minY = p.y;
+            return last.y - minY;
           };
 
-          // Whole-hand swipe: track palm (landmark 9, fallback 0)
+          // Whole-hand swipe: track palm (landmark 9, fallback 0).
+          // 0.19 ≈ a modest, natural hand movement — no need to swing
+          // the hand halfway across the screen.
+          const PALM_THRESHOLD = 0.19;
           const palmHist = trackRef.current;
           if (palm) palmHist.push({ t: now, y: palm.y });
           prune(palmHist);
           const palmDy = deltaY(palmHist);
-          const palmProgress = Math.max(0, Math.min(1, palmDy / 0.33));
 
           // Pointer-finger flick: track index tip (landmark 8).
-          // A finger flick covers less screen distance, so use a smaller threshold.
-          const FINGER_THRESHOLD = 0.14;
+          // A natural seated finger slide only covers ~0.05–0.07 of screen
+          // height, so the threshold is tuned far below the full-hand one.
+          const FINGER_THRESHOLD = 0.065;
           const fingerHist = fingerTrackRef.current;
           if (fingerTip) fingerHist.push({ t: now, y: fingerTip.y });
           prune(fingerHist);
           const fingerDy = deltaY(fingerHist);
-          const fingerProgress = Math.max(0, Math.min(1, fingerDy / FINGER_THRESHOLD));
 
-          setSwipeProgress(Math.max(palmProgress, fingerProgress));
-          if ((palmDy > 0.33 || fingerDy > FINGER_THRESHOLD) && now - lastSwipeRef.current > 1500) {
+          // Relative finger movement: index tip's position measured against
+          // the wrist / index knuckle. Sliding or curling the pointer finger
+          // down increases this sharply even when the hand barely moves on
+          // screen — catches the subtlest flicks.
+          const REL_THRESHOLD = 0.055;
+          const relHist = relTrackRef.current;
+          if (fingerTip && wrist) {
+            relHist.push({ t: now, y: fingerTip.y - wrist.y });
+          } else if (fingerTip && knuckle) {
+            relHist.push({ t: now, y: fingerTip.y - knuckle.y });
+          }
+          prune(relHist);
+          const relDy = deltaY(relHist);
+
+          const palmProgress = Math.max(0, Math.min(1, palmDy / PALM_THRESHOLD));
+          const fingerProgress = Math.max(0, Math.min(1, fingerDy / FINGER_THRESHOLD));
+          const relProgress = Math.max(0, Math.min(1, relDy / REL_THRESHOLD));
+
+          setSwipeProgress(Math.max(palmProgress, fingerProgress, relProgress));
+          if (
+            (palmDy > PALM_THRESHOLD || fingerDy > FINGER_THRESHOLD || relDy > REL_THRESHOLD) &&
+            now - lastSwipeRef.current > 900
+          ) {
             lastSwipeRef.current = now;
             palmHist.length = 0;
             fingerHist.length = 0;
+            relHist.length = 0;
             setSwipeProgress(0);
             swipeCbRef.current();
           }
         } else {
           trackRef.current.length = 0;
           fingerTrackRef.current.length = 0;
+          relTrackRef.current.length = 0;
           setSwipeProgress(0);
         }
       };
