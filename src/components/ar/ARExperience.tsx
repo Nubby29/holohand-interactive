@@ -37,8 +37,89 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, []);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, start } =
+  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } =
     useHandTracking(handleSwipe);
+
+  const DWELL_MS = 750;
+  const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [dwell, setDwell] = useState(0);
+  const hoverSoundRef = useRef<string | null>(null);
+  const dwellStartRef = useRef(0);
+
+  const setTarget = useCallback(
+    (id: string) => (el: HTMLElement | null) => {
+      targetsRef.current.set(id, el);
+    },
+    [],
+  );
+
+  const activate = useCallback((id: string) => {
+    if (id === "close") {
+      sfx.close();
+      setMenuOpen(false);
+      return;
+    }
+    sfx.select();
+    setActive(id);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 500);
+  }, []);
+
+  // Hit-test the virtual pointer against the menu targets.
+  useEffect(() => {
+    if (!menuOpen || !pointer.active) {
+      setHovered(null);
+      hoverSoundRef.current = null;
+      return;
+    }
+    let found: string | null = null;
+    targetsRef.current.forEach((el, id) => {
+      if (!el || found) return;
+      const r = el.getBoundingClientRect();
+      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom)
+        found = id;
+    });
+    setHovered(found);
+    if (found && hoverSoundRef.current !== found) {
+      hoverSoundRef.current = found;
+      sfx.hover();
+    }
+    if (!found) hoverSoundRef.current = null;
+  }, [pointer, menuOpen]);
+
+  // Dwell-to-click: hold the pointer on a target for DWELL_MS.
+  useEffect(() => {
+    if (!hovered) {
+      setDwell(0);
+      return;
+    }
+    dwellStartRef.current = performance.now();
+    let raf = 0;
+    let done = false;
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - dwellStartRef.current) / DWELL_MS);
+      setDwell(p);
+      if (p >= 1 && !done) {
+        done = true;
+        activate(hovered);
+        setDwell(0);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hovered, activate]);
+
+  // Pinch-to-click: instant selection of whatever is hovered.
+  useEffect(() => {
+    if (!pinchPulse || !menuOpen || !hovered) return;
+    activate(hovered);
+    setDwell(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinchPulse]);
+
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
