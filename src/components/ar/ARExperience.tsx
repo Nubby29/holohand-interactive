@@ -1,29 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Hand, Layers, Radio, Settings2, Sparkles, Users } from "lucide-react";
+import { Box, Hand, Languages, Layers, Radio, Settings2, Sparkles, Users } from "lucide-react";
 import { HandOverlay } from "./HandOverlay";
+import { SignLanguagePanel } from "./SignLanguagePanel";
 import { SocialARPanel } from "./SocialARPanel";
 import { useHandTracking } from "./useHandTracking";
 import { sfx } from "./sfx";
 
 const MENU_ITEMS = [
   { id: "scan", label: "SCAN", desc: "Spatial Scan", Icon: Radio, angle: -90 },
-  { id: "social", label: "SOCIAL", desc: "Holo Social", Icon: Users, angle: -18 },
-  { id: "layers", label: "LAYERS", desc: "Holo Layers", Icon: Layers, angle: 54 },
-  { id: "fx", label: "FX", desc: "Particle FX", Icon: Sparkles, angle: 126 },
-  { id: "calib", label: "CALIB", desc: "Re-centre", Icon: Settings2, angle: 198 },
+  { id: "social", label: "SOCIAL", desc: "Holo Social", Icon: Users, angle: -30 },
+  { id: "layers", label: "LAYERS", desc: "Holo Layers", Icon: Layers, angle: 30 },
+  { id: "fx", label: "FX", desc: "Particle FX", Icon: Sparkles, angle: 90 },
+  { id: "calib", label: "CALIB", desc: "Re-centre", Icon: Settings2, angle: 150 },
+  { id: "sign", label: "SIGN", desc: "FSL Signs", Icon: Languages, angle: 210 },
 ];
 
 export default function ARExperience() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [socialOpen, setSocialOpen] = useState(false);
+  const [signOpen, setSignOpen] = useState(false);
   const [hud, setHud] = useState(true);
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
+  const [recognizedSigns, setRecognizedSigns] = useState("");
 
   const handleTwoFingerHold = useCallback(() => {
     if (socialOpen) {
       sfx.close();
       setSocialOpen(false);
+      setActive(null);
+    } else if (signOpen) {
+      sfx.close();
+      setSignOpen(false);
+      setRecognizedSigns("");
       setActive(null);
     } else {
       setMenuOpen((open) => {
@@ -38,13 +47,28 @@ export default function ARExperience() {
     }
     setFlash(true);
     window.setTimeout(() => setFlash(false), 700);
-  }, [socialOpen]);
+  }, [socialOpen, signOpen]);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, pinching, start } = useHandTracking(handleTwoFingerHold);
+  const {
+    videoRef,
+    handsRef,
+    status,
+    error,
+    handPresent,
+    swipeProgress,
+    pointer,
+    pinchPulse,
+    pinching,
+    fslLetter,
+    start,
+  } = useHandTracking(handleTwoFingerHold);
+
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
   const [hovered, setHovered] = useState<string | null>(null);
   const hoverSoundRef = useRef<string | null>(null);
   const scrollPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const signSequenceRef = useRef("");
+  const signResetRef = useRef<number | null>(null);
   const setTarget = useCallback((id: string) => (el: HTMLElement | null) => targetsRef.current.set(id, el), []);
 
   const activate = useCallback((id: string) => {
@@ -55,7 +79,19 @@ export default function ARExperience() {
 
     if (id === "social") {
       setMenuOpen(false);
+      setSignOpen(false);
+      setRecognizedSigns("");
+      signSequenceRef.current = "";
       setSocialOpen(true);
+      return;
+    }
+
+    if (id === "sign") {
+      setMenuOpen(false);
+      setSocialOpen(false);
+      setRecognizedSigns("");
+      signSequenceRef.current = "";
+      setSignOpen(true);
     }
   }, []);
 
@@ -63,6 +99,41 @@ export default function ARExperience() {
     sfx.close();
     setSocialOpen(false);
     setActive(null);
+  }, []);
+
+  const closeSign = useCallback(() => {
+    sfx.close();
+    setSignOpen(false);
+    setRecognizedSigns("");
+    signSequenceRef.current = "";
+    setActive(null);
+  }, []);
+
+  useEffect(() => {
+    if (!signOpen || !fslLetter) return;
+
+    const current = signSequenceRef.current;
+    if (current.endsWith(fslLetter)) return;
+
+    const next = `${current}${fslLetter}`.slice(-8);
+    signSequenceRef.current = next;
+    setRecognizedSigns(next);
+    sfx.hover();
+
+    if (signResetRef.current) window.clearTimeout(signResetRef.current);
+    signResetRef.current = window.setTimeout(() => {
+      signSequenceRef.current = "";
+      setRecognizedSigns("");
+      signResetRef.current = null;
+    }, 2200);
+
+    if (next.endsWith("FB")) {
+      window.setTimeout(() => activate("social"), 250);
+    }
+  }, [fslLetter, signOpen, activate]);
+
+  useEffect(() => () => {
+    if (signResetRef.current) window.clearTimeout(signResetRef.current);
   }, []);
 
   useEffect(() => {
@@ -93,9 +164,6 @@ export default function ARExperience() {
     if (pinchPulse && interactionOpen && hovered) activate(hovered);
   }, [pinchPulse, menuOpen, socialOpen, hovered, activate]);
 
-  // Pinch + drag scrolls the open Social surface. The scrollable ancestor
-  // under the hand pointer is updated directly, so normal pinch buttons
-  // remain interactive while dragging anywhere over the feed.
   useEffect(() => {
     if (!socialOpen || !pointer.active || !pinching) {
       scrollPointerRef.current = null;
@@ -131,13 +199,13 @@ export default function ARExperience() {
       {flash && <div className="pointer-events-none absolute inset-0 z-50 animate-[pulse_0.6s_ease-out] bg-[rgba(34,255,225,0.1)]" />}
 
       <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 p-5">
-        <div><h1 className="font-mono text-sm tracking-[0.35em] text-[rgb(34,255,225)] uppercase">Aurora // Handspace</h1><p className="mt-1 font-mono text-[11px] tracking-widest text-white/50 uppercase">gesture interface v2.8</p></div>
+        <div><h1 className="font-mono text-sm tracking-[0.35em] text-[rgb(34,255,225)] uppercase">Aurora // Handspace</h1><p className="mt-1 font-mono text-[11px] tracking-widest text-white/50 uppercase">gesture interface v2.9 · FSL</p></div>
         <div className="flex items-center gap-2"><StatusPill label={status === "ready" ? (handPresent ? "hand locked" : "scanning") : status} on={status === "ready" && handPresent} /><button onClick={() => { sfx.hover(); setHud(v => !v); }} className="rounded-full border border-[rgba(34,255,225,0.35)] bg-black/35 px-4 py-2 font-mono text-[10px] tracking-widest text-[rgb(34,255,225)] uppercase backdrop-blur transition hover:bg-[rgba(34,255,225,0.12)]">HUD {hud ? "on" : "off"}</button></div>
       </header>
 
       {status !== "ready" && <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm"><div className="max-w-md rounded-2xl border border-[rgba(34,255,225,0.35)] bg-black/60 p-8 text-center shadow-[0_0_60px_rgba(34,255,225,0.25)]"><Hand className="mx-auto h-10 w-10 text-[rgb(34,255,225)]" /><h2 className="mt-4 text-2xl font-semibold text-white">Enter Handspace</h2><p className="mt-2 text-sm text-white/65">Allow camera access, then raise your index and middle fingers together and hold to summon the radial menu.</p>{error && <p className="mt-3 text-sm text-[rgb(255,90,130)]">{error}</p>}<button onClick={() => { sfx.select(); void start(); }} disabled={status === "loading"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[rgb(34,255,225)] px-6 py-3 font-mono text-xs tracking-[0.25em] text-black uppercase transition hover:shadow-[0_0_30px_rgba(34,255,225,0.7)] disabled:opacity-50"><Radio className="h-4 w-4" />{status === "loading" ? "initialising…" : status === "error" ? "retry" : "activate"}</button></div></div>}
 
-      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select · pinch + drag to scroll</p>}</div>}
+      {status === "ready" && <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 text-center"><div className="mx-auto h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[rgb(34,255,225)] shadow-[0_0_12px_rgba(34,255,225,0.8)] transition-[width] duration-75" style={{ width: `${Math.round(swipeProgress * 100)}%` }} /></div><p className="mt-2 font-mono text-[9px] tracking-[0.22em] text-white/45 uppercase">raise index + middle · hold to {menuOpen || socialOpen || signOpen ? "close" : "open"}</p>{(menuOpen || socialOpen) && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(34,255,225)]/60 uppercase">point · pinch to select · pinch + drag to scroll</p>}{signOpen && <p className="mt-1 font-mono text-[8px] tracking-widest text-[rgb(255,90,210)]/70 uppercase">FSL · sign letters one at a time · FB opens Holo Social</p>}</div>}
 
       {menuOpen && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
@@ -164,6 +232,7 @@ export default function ARExperience() {
         </div>
       )}
 
+      {signOpen && <SignLanguagePanel recognized={recognizedSigns} currentLetter={fslLetter} onClose={closeSign} />}
       {socialOpen && <SocialARPanel registerTarget={setTarget} onClose={closeSocial} onActivate={activate} />}
 
       {(menuOpen || socialOpen) && pointer.active && <div className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2" style={{ left: pointer.x, top: pointer.y }}><div className={`h-12 w-12 rounded-full border-2 ${hovered ? "border-[rgb(255,90,210)] shadow-[0_0_24px_rgba(255,90,210,0.65)]" : "border-[rgb(34,255,225)] shadow-[0_0_20px_rgba(34,255,225,0.45)]"}`}><div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(34,255,225)]" /></div></div>}
