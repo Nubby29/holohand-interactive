@@ -17,10 +17,6 @@ export function useHandTracking(onSwipeDown: () => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const handsRef = useRef<HandState>({ landmarks: [], handedness: [] });
   const rafRef = useRef<number | null>(null);
-  const trackRef = useRef<Array<{ t: number; y: number }>>([]);
-  const fingerTrackRef = useRef<Array<{ t: number; y: number }>>([]);
-  const relTrackRef = useRef<Array<{ t: number; y: number }>>([]);
-  const lastSwipeRef = useRef(0);
   const swipeCbRef = useRef(onSwipeDown);
   swipeCbRef.current = onSwipeDown;
 
@@ -36,6 +32,14 @@ export function useHandTracking(onSwipeDown: () => void) {
   const [pinchPulse, setPinchPulse] = useState(0);
   const smoothRef = useRef<{ x: number; y: number } | null>(null);
   const pinchingRef = useRef(false);
+
+  // Menu-open gesture state. The old downward swipe has been replaced with
+  // an intentional two-finger hold: index + middle finger extended together.
+  const twoFingerStartRef = useRef<number | null>(null);
+  const twoFingerTriggeredRef = useRef(false);
+  const lastTwoFingerTriggerRef = useRef(0);
+  const TWO_FINGER_HOLD_MS = 650;
+  const TWO_FINGER_COOLDOWN_MS = 1200;
 
   const start = useCallback(async () => {
     if (status === "loading" || status === "ready") return;
@@ -79,7 +83,6 @@ export function useHandTracking(onSwipeDown: () => void) {
 
         if (lms.length > 0) {
           const hand = lms[0] ?? [];
-          const palm = hand[9] ?? hand[0];
           const wrist = hand[0];
           const fingerTip = hand[8];
           const knuckle = hand[5];
@@ -113,74 +116,63 @@ export function useHandTracking(onSwipeDown: () => void) {
             else if (isPinching) pinchingRef.current = true;
           }
 
-          const windowMs = 700;
-          const prune = (hist: Array<{ t: number; y: number }>) => {
-            while (hist.length && now - (hist[0]?.t ?? now) > windowMs) hist.shift();
-          };
-          // Downward stroke distance measured from the HIGHEST point reached
-          // in the window (peak) to the current position. This survives brief
-          // holds/pauses mid-slide — pausing at the top doesn't reset progress,
-          // and the stroke completes the moment the slide continues downward.
-          const deltaY = (hist: Array<{ t: number; y: number }>) => {
-            const last = hist[hist.length - 1];
-            if (!last || hist.length < 2) return 0;
-            let minY = Infinity;
-            for (const p of hist) if (p.y < minY) minY = p.y;
-            return last.y - minY;
+          // Menu-open gesture: index + middle fingers raised while the other
+          // fingers remain folded. It must be held briefly, which prevents
+          // ordinary downward hand movement from opening the menu.
+          const isFingerExtended = (tipIndex: number, pipIndex: number) => {
+            const tip = hand[tipIndex];
+            const pip = hand[pipIndex];
+            if (!tip || !pip || !wrist) return false;
+            const tipFromWrist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+            const pipFromWrist = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+            return tipFromWrist > pipFromWrist * 1.08;
           };
 
-          // Whole-hand swipe: track palm (landmark 9, fallback 0).
-          // 0.19 ≈ a modest, natural hand movement — no need to swing
-          // the hand halfway across the screen.
-          const PALM_THRESHOLD = 0.19;
-          const palmHist = trackRef.current;
-          if (palm) palmHist.push({ t: now, y: palm.y });
-          prune(palmHist);
-          const palmDy = deltaY(palmHist);
+          const isFingerFolded = (tipIndex: number, pipIndex: number) => {
+            const tip = hand[tipIndex];
+            const pip = hand[pipIndex];
+            if (!tip || !pip || !wrist) return false;
+            const tipFromWrist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+            const pipFromWrist = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+            return tipFromWrist < pipFromWrist * 1.08;
+          };
 
-          // Pointer-finger flick: track index tip (landmark 8).
-          // A natural seated finger slide only covers ~0.05–0.07 of screen
-          // height, so the threshold is tuned far below the full-hand one.
-          const FINGER_THRESHOLD = 0.065;
-          const fingerHist = fingerTrackRef.current;
-          if (fingerTip) fingerHist.push({ t: now, y: fingerTip.y });
-          prune(fingerHist);
-          const fingerDy = deltaY(fingerHist);
+          const indexRaised = isFingerExtended(8, 6);
+          const middleRaised = isFingerExtended(12, 10);
+          const ringFolded = isFingerFolded(16, 14);
+          const pinkyFolded = isFingerFolded(20, 18);
+          const twoFingerGesture = indexRaised && middleRaised && ringFolded && pinkyFolded;
 
-          // Relative finger movement: index tip's position measured against
-          // the wrist / index knuckle. Sliding or curling the pointer finger
-          // down increases this sharply even when the hand barely moves on
-          // screen — catches the subtlest flicks.
-          const REL_THRESHOLD = 0.055;
-          const relHist = relTrackRef.current;
-          if (fingerTip && wrist) {
-            relHist.push({ t: now, y: fingerTip.y - wrist.y });
-          } else if (fingerTip && knuckle) {
-            relHist.push({ t: now, y: fingerTip.y - knuckle.y });
-          }
-          prune(relHist);
-          const relDy = deltaY(relHist);
+          if (twoFingerGesture) {
+            if (twoFingerStartRef.current === null) {
+              twoFingerStartRef.current = now;
+              twoFingerTriggeredRef.current = false;
+            }
 
-          const palmProgress = Math.max(0, Math.min(1, palmDy / PALM_THRESHOLD));
-          const fingerProgress = Math.max(0, Math.min(1, fingerDy / FINGER_THRESHOLD));
-          const relProgress = Math.max(0, Math.min(1, relDy / REL_THRESHOLD));
+            const progress = Math.min(
+              1,
+              (now - twoFingerStartRef.current) / TWO_FINGER_HOLD_MS,
+            );
+            setSwipeProgress(progress);
 
-          setSwipeProgress(Math.max(palmProgress, fingerProgress, relProgress));
-          if (
-            (palmDy > PALM_THRESHOLD || fingerDy > FINGER_THRESHOLD || relDy > REL_THRESHOLD) &&
-            now - lastSwipeRef.current > 900
-          ) {
-            lastSwipeRef.current = now;
-            palmHist.length = 0;
-            fingerHist.length = 0;
-            relHist.length = 0;
+            if (
+              progress >= 1 &&
+              !twoFingerTriggeredRef.current &&
+              now - lastTwoFingerTriggerRef.current > TWO_FINGER_COOLDOWN_MS
+            ) {
+              twoFingerTriggeredRef.current = true;
+              lastTwoFingerTriggerRef.current = now;
+              setSwipeProgress(0);
+              swipeCbRef.current();
+            }
+          } else {
+            twoFingerStartRef.current = null;
+            twoFingerTriggeredRef.current = false;
             setSwipeProgress(0);
-            swipeCbRef.current();
           }
         } else {
-          trackRef.current.length = 0;
-          fingerTrackRef.current.length = 0;
-          relTrackRef.current.length = 0;
+          twoFingerStartRef.current = null;
+          twoFingerTriggeredRef.current = false;
           setSwipeProgress(0);
           smoothRef.current = null;
           pinchingRef.current = false;
