@@ -1,5 +1,15 @@
-import { useCallback, useState } from "react";
-import { Camera, Hand, Layers, Radio, Settings2, Sparkles, Waves, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Camera,
+  Crosshair,
+  Hand,
+  Layers,
+  Radio,
+  Settings2,
+  Sparkles,
+  Waves,
+  X,
+} from "lucide-react";
 import { HandOverlay } from "./HandOverlay";
 import { useHandTracking } from "./useHandTracking";
 import { sfx } from "./sfx";
@@ -27,8 +37,89 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, []);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, start } =
+  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } =
     useHandTracking(handleSwipe);
+
+  const DWELL_MS = 750;
+  const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [dwell, setDwell] = useState(0);
+  const hoverSoundRef = useRef<string | null>(null);
+  const dwellStartRef = useRef(0);
+
+  const setTarget = useCallback(
+    (id: string) => (el: HTMLElement | null) => {
+      targetsRef.current.set(id, el);
+    },
+    [],
+  );
+
+  const activate = useCallback((id: string) => {
+    if (id === "close") {
+      sfx.close();
+      setMenuOpen(false);
+      return;
+    }
+    sfx.select();
+    setActive(id);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 500);
+  }, []);
+
+  // Hit-test the virtual pointer against the menu targets.
+  useEffect(() => {
+    if (!menuOpen || !pointer.active) {
+      setHovered(null);
+      hoverSoundRef.current = null;
+      return;
+    }
+    let found: string | null = null;
+    targetsRef.current.forEach((el, id) => {
+      if (!el || found) return;
+      const r = el.getBoundingClientRect();
+      if (pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom)
+        found = id;
+    });
+    setHovered(found);
+    if (found && hoverSoundRef.current !== found) {
+      hoverSoundRef.current = found;
+      sfx.hover();
+    }
+    if (!found) hoverSoundRef.current = null;
+  }, [pointer, menuOpen]);
+
+  // Dwell-to-click: hold the pointer on a target for DWELL_MS.
+  useEffect(() => {
+    if (!hovered) {
+      setDwell(0);
+      return;
+    }
+    dwellStartRef.current = performance.now();
+    let raf = 0;
+    let done = false;
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - dwellStartRef.current) / DWELL_MS);
+      setDwell(p);
+      if (p >= 1 && !done) {
+        done = true;
+        activate(hovered);
+        setDwell(0);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hovered, activate]);
+
+  // Pinch-to-click: instant selection of whatever is hovered.
+  useEffect(() => {
+    if (!pinchPulse || !menuOpen || !hovered) return;
+    activate(hovered);
+    setDwell(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinchPulse]);
+
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -130,11 +221,16 @@ export default function ARExperience() {
               holo menu
             </p>
             <button
+              ref={setTarget("close")}
               onClick={() => {
                 sfx.close();
                 setMenuOpen(false);
               }}
-              className="rounded-full border border-white/20 p-1.5 text-white/70 transition hover:border-[rgb(255,90,210)] hover:text-[rgb(255,90,210)]"
+              className={`rounded-full border p-1.5 transition hover:border-[rgb(255,90,210)] hover:text-[rgb(255,90,210)] ${
+                hovered === "close"
+                  ? "border-[rgb(255,90,210)] text-[rgb(255,90,210)] shadow-[0_0_20px_rgba(255,90,210,0.6)]"
+                  : "border-white/20 text-white/70"
+              }`}
               aria-label="Close menu"
             >
               <X className="h-4 w-4" />
@@ -145,6 +241,7 @@ export default function ARExperience() {
             {MENU_ITEMS.map(({ id, label, desc, Icon }, i) => (
               <button
                 key={id}
+                ref={setTarget(id)}
                 onMouseEnter={() => sfx.hover()}
                 onClick={() => {
                   sfx.select();
@@ -154,12 +251,20 @@ export default function ARExperience() {
                 className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition duration-300 ${
                   active === id
                     ? "border-[rgb(255,90,210)] bg-[rgba(255,90,210,0.12)] shadow-[0_0_30px_rgba(255,90,210,0.35)]"
-                    : "border-[rgba(34,255,225,0.3)] bg-white/5 hover:border-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.1)]"
+                    : hovered === id
+                      ? "border-[rgb(34,255,225)] bg-[rgba(34,255,225,0.14)] shadow-[0_0_34px_rgba(34,255,225,0.45)]"
+                      : "border-[rgba(34,255,225,0.3)] bg-white/5 hover:border-[rgb(34,255,225)] hover:bg-[rgba(34,255,225,0.1)]"
                 }`}
               >
                 <Icon className="h-5 w-5 text-[rgb(34,255,225)] transition group-hover:scale-110" />
                 <p className="mt-3 text-sm font-semibold text-white">{label}</p>
                 <p className="mt-0.5 font-mono text-[11px] tracking-wider text-white/55">{desc}</p>
+                {hovered === id && (
+                  <span
+                    className="absolute inset-x-0 bottom-0 h-1 bg-[rgb(34,255,225)] shadow-[0_0_14px_rgba(34,255,225,0.9)]"
+                    style={{ width: `${Math.round(dwell * 100)}%` }}
+                  />
+                )}
               </button>
             ))}
           </div>
@@ -168,7 +273,53 @@ export default function ARExperience() {
             {active ? `module engaged · ${active}` : "awaiting selection"}
           </p>
         </div>
+
+        {menuOpen && (
+          <p className="mt-4 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-[rgb(34,255,225)]/80 uppercase">
+            <Crosshair className="h-3.5 w-3.5" />
+            point &amp; hold or pinch to select
+          </p>
+        )}
       </div>
+
+      {/* Virtual pointer reticle */}
+      {menuOpen && pointer.active && status === "ready" && (
+        <div
+          className="pointer-events-none fixed z-40 -translate-x-1/2 -translate-y-1/2"
+          style={{ left: pointer.x, top: pointer.y }}
+        >
+          <svg width="76" height="76" viewBox="0 0 76 76" className="overflow-visible">
+            <circle
+              cx="38"
+              cy="38"
+              r="22"
+              fill="none"
+              stroke={hovered ? "rgba(255,90,210,0.5)" : "rgba(34,255,225,0.45)"}
+              strokeWidth="2"
+            />
+            <circle
+              cx="38"
+              cy="38"
+              r="22"
+              fill="none"
+              stroke={hovered ? "rgb(255,90,210)" : "rgb(34,255,225)"}
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray={2 * Math.PI * 22}
+              strokeDashoffset={2 * Math.PI * 22 * (1 - dwell)}
+              transform="rotate(-90 38 38)"
+              style={{ filter: "drop-shadow(0 0 8px rgba(34,255,225,0.9))" }}
+            />
+            <circle cx="38" cy="38" r="4" fill="rgb(34,255,225)" />
+            <path
+              d="M38 6 V18 M38 58 V70 M6 38 H18 M58 38 H70"
+              stroke="rgba(34,255,225,0.8)"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }
