@@ -83,6 +83,35 @@ export function useHandTracking(onSwipeDown: () => void) {
           const wrist = hand[0];
           const fingerTip = hand[8];
           const knuckle = hand[5];
+          const thumbTip = hand[4];
+          const midKnuckle = hand[9];
+
+          // Virtual pointer: index fingertip mapped into viewport space.
+          // The video is mirrored, so x is flipped. Exponential smoothing
+          // takes the jitter out of the reticle without adding lag.
+          if (fingerTip) {
+            const tx = (1 - fingerTip.x) * window.innerWidth;
+            const ty = fingerTip.y * window.innerHeight;
+            const prev = smoothRef.current;
+            const s = prev
+              ? { x: prev.x + (tx - prev.x) * 0.35, y: prev.y + (ty - prev.y) * 0.35 }
+              : { x: tx, y: ty };
+            smoothRef.current = s;
+            setPointer({ x: s.x, y: s.y, active: true });
+          }
+
+          // Pinch: thumb tip to index tip, normalised by hand size so the
+          // distance from the camera doesn't matter.
+          if (thumbTip && fingerTip && wrist && midKnuckle) {
+            const handSize =
+              Math.hypot(midKnuckle.x - wrist.x, midKnuckle.y - wrist.y) || 0.0001;
+            const pinchDist =
+              Math.hypot(thumbTip.x - fingerTip.x, thumbTip.y - fingerTip.y) / handSize;
+            const isPinching = pinchDist < 0.45;
+            if (isPinching && !pinchingRef.current) setPinchPulse((n) => n + 1);
+            if (!isPinching && pinchDist > 0.6) pinchingRef.current = false;
+            else if (isPinching) pinchingRef.current = true;
+          }
 
           const windowMs = 700;
           const prune = (hist: Array<{ t: number; y: number }>) => {
