@@ -4,6 +4,7 @@ import {
   Crosshair,
   Hand,
   Layers,
+  Move,
   Radio,
   Settings2,
   Sparkles,
@@ -26,6 +27,12 @@ export default function ARExperience() {
   const [hud, setHud] = useState(true);
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
+  const [holoPosition, setHoloPosition] = useState({
+    x: typeof window !== "undefined" ? window.innerWidth / 2 : 0,
+    y: typeof window !== "undefined" ? window.innerHeight / 2 : 0,
+  });
+  const [holoHovered, setHoloHovered] = useState(false);
+  const [holoGrabbed, setHoloGrabbed] = useState(false);
 
   // Index + middle finger raise summons the menu. Once open, it cannot dismiss it.
   // Closing is intentionally handled only by pointing at the X and pinching.
@@ -39,10 +46,23 @@ export default function ARExperience() {
     window.setTimeout(() => setFlash(false), 700);
   }, []);
 
-  const { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, start } =
-    useHandTracking(handleTwoFingerRaise);
+  const {
+    videoRef,
+    handsRef,
+    status,
+    error,
+    handPresent,
+    swipeProgress,
+    pointer,
+    pinchPulse,
+    pinching,
+    start,
+  } = useHandTracking(handleTwoFingerRaise);
 
   const targetsRef = useRef<Map<string, HTMLElement | null>>(new Map());
+  const holoRef = useRef<HTMLDivElement | null>(null);
+  const grabOffsetRef = useRef({ x: 0, y: 0 });
+  const grabbedRef = useRef(false);
   const [hovered, setHovered] = useState<string | null>(null);
   const hoverSoundRef = useRef<string | null>(null);
 
@@ -89,8 +109,54 @@ export default function ARExperience() {
     if (!found) hoverSoundRef.current = null;
   }, [pointer, menuOpen]);
 
-  // Thumb + index pinch = click. pinchPulse is edge-triggered by the hand tracker,
-  // so holding the pinch does not repeatedly activate the same button.
+  // Phase 2 spatial manipulation: a pinch on the floating hologram grabs it.
+  // While the pinch is held, the hologram follows the index fingertip. Releasing
+  // the pinch drops it in place. The grab offset prevents the object from jumping.
+  useEffect(() => {
+    if (menuOpen || !pointer.active || !holoRef.current) {
+      if (grabbedRef.current) {
+        grabbedRef.current = false;
+        setHoloGrabbed(false);
+      }
+      setHoloHovered(false);
+      return;
+    }
+
+    const r = holoRef.current.getBoundingClientRect();
+    const overHolo =
+      pointer.x >= r.left &&
+      pointer.x <= r.right &&
+      pointer.y >= r.top &&
+      pointer.y <= r.bottom;
+
+    if (!grabbedRef.current) {
+      setHoloHovered(overHolo);
+      if (pinching && overHolo) {
+        grabbedRef.current = true;
+        grabOffsetRef.current = {
+          x: pointer.x - (r.left + r.width / 2),
+          y: pointer.y - (r.top + r.height / 2),
+        };
+        setHoloGrabbed(true);
+        sfx.select();
+      }
+      return;
+    }
+
+    if (!pinching) {
+      grabbedRef.current = false;
+      setHoloGrabbed(false);
+      sfx.hover();
+      return;
+    }
+
+    setHoloPosition({
+      x: pointer.x - grabOffsetRef.current.x,
+      y: pointer.y - grabOffsetRef.current.y,
+    });
+  }, [pointer, pinching, menuOpen]);
+
+  // Keep the existing pinch click behavior for menu controls.
   useEffect(() => {
     if (!pinchPulse || !menuOpen || !hovered) return;
     activate(hovered);
@@ -111,6 +177,33 @@ export default function ARExperience() {
 
       {flash && (
         <div className="pointer-events-none absolute inset-0 animate-[pulse_0.6s_ease-out] bg-[rgba(34,255,225,0.12)]" />
+      )}
+
+      {/* Phase 2 spatial object */}
+      {status === "ready" && !menuOpen && (
+        <div
+          ref={holoRef}
+          className={`absolute z-10 h-36 w-56 -translate-x-1/2 -translate-y-1/2 rounded-3xl border backdrop-blur-xl transition-shadow duration-200 ${
+            holoGrabbed
+              ? "border-[rgb(255,90,210)] bg-[rgba(255,90,210,0.14)] shadow-[0_0_70px_rgba(255,90,210,0.55)]"
+              : holoHovered
+                ? "border-[rgb(34,255,225)] bg-[rgba(34,255,225,0.13)] shadow-[0_0_55px_rgba(34,255,225,0.5)]"
+                : "border-[rgba(34,255,225,0.38)] bg-[rgba(4,12,22,0.45)] shadow-[0_0_45px_rgba(34,255,225,0.18)]"
+          }`}
+          style={{ left: holoPosition.x, top: holoPosition.y }}
+        >
+          <div className="absolute inset-2 rounded-2xl border border-white/10" />
+          <div className="relative flex h-full flex-col items-center justify-center text-center">
+            <Move className={`h-6 w-6 ${holoGrabbed ? "text-[rgb(255,90,210)]" : "text-[rgb(34,255,225)]"}`} />
+            <p className="mt-3 font-mono text-xs tracking-[0.28em] text-white uppercase">
+              {holoGrabbed ? "object grabbed" : "spatial object"}
+            </p>
+            <p className="mt-1 font-mono text-[10px] tracking-widest text-white/45 uppercase">
+              {holoGrabbed ? "release pinch to drop" : "pinch + drag to move"}
+            </p>
+          </div>
+          <div className="pointer-events-none absolute -inset-3 rounded-[28px] border border-[rgba(34,255,225,0.08)]" />
+        </div>
       )}
 
       {/* Top HUD bar */}
@@ -178,6 +271,11 @@ export default function ARExperience() {
             <Waves className="h-3.5 w-3.5 text-[rgb(255,90,210)]" />
             raise index + middle to {menuOpen ? "stay active" : "summon"}
           </p>
+          {!menuOpen && (
+            <p className="mt-1 font-mono text-[10px] tracking-widest text-white/45 uppercase">
+              point · pinch + drag holograms
+            </p>
+          )}
         </div>
       )}
 
