@@ -6,6 +6,7 @@ import type { HandState, Landmark } from "./useHandTracking";
 const STORAGE_KEY = "holohand-fsl-sign-dataset-v1";
 const MAX_RECORDING_MS = 4000;
 const SAMPLE_INTERVAL_MS = 50;
+const COUNTDOWN_SECONDS = 3;
 
 export type FSLRecordedFrame = {
   t: number;
@@ -61,6 +62,7 @@ function normalizeHand(landmarks: Landmark[]) {
 export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandState> }) {
   const [label, setLabel] = useState("");
   const [recording, setRecording] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [dataset, setDataset] = useState<FSLSignDataset>(() => loadDataset());
   const [message, setMessage] = useState("Ready to record a dynamic sign.");
@@ -68,12 +70,14 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
   const framesRef = useRef<FSLRecordedFrame[]>([]);
   const lastSampleRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const countdownTimerRef = useRef<number | null>(null);
   const recordingRef = useRef(false);
 
   useEffect(() => {
     return () => {
       recordingRef.current = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     };
   }, []);
 
@@ -108,19 +112,12 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
     setMessage(`Saved ${cleanLabel} · ${frames.length} frames. Record more examples for the same sign if needed.`);
   };
 
-  const startRecording = () => {
-    const cleanLabel = label.trim();
-    if (!cleanLabel) {
-      setMessage("Enter the FSL sign name first, for example CLOSE.");
-      return;
-    }
-    if (recordingRef.current) return;
-
+  const beginRecording = () => {
     framesRef.current = [];
     startedAtRef.current = performance.now();
     lastSampleRef.current = 0;
     setElapsed(0);
-    setMessage(`Recording ${cleanLabel.toUpperCase()}… perform the sign naturally.`);
+    setMessage(`Recording ${label.trim().toUpperCase()}… perform the sign naturally.`);
     recordingRef.current = true;
     setRecording(true);
 
@@ -154,6 +151,30 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
     };
 
     rafRef.current = requestAnimationFrame(loop);
+  };
+
+  const startRecording = () => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) {
+      setMessage("Enter the FSL sign name first, for example CLOSE.");
+      return;
+    }
+    if (recordingRef.current || countdown !== null) return;
+
+    setCountdown(COUNTDOWN_SECONDS);
+    setMessage(`Get ready to perform ${cleanLabel.toUpperCase()}…`);
+    let remaining = COUNTDOWN_SECONDS;
+    countdownTimerRef.current = window.setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+        setCountdown(null);
+        beginRecording();
+      } else {
+        setCountdown(remaining);
+      }
+    }, 1000);
   };
 
   const deleteSign = (id: string) => {
@@ -205,13 +226,23 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-        <input value={label} onChange={(event) => setLabel(event.target.value)} disabled={recording} placeholder="Sign name (e.g. CLOSE)" className="rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs tracking-wider text-white outline-none placeholder:text-white/25 focus:border-[rgba(34,255,225,0.45)]" />
+        <input value={label} onChange={(event) => setLabel(event.target.value)} disabled={recording || countdown !== null} placeholder="Sign name (e.g. CLOSE)" className="rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs tracking-wider text-white outline-none placeholder:text-white/25 focus:border-[rgba(34,255,225,0.45)]" />
         {!recording ? (
-          <button onClick={startRecording} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[rgba(34,255,225,0.35)] bg-[rgba(34,255,225,0.08)] px-4 py-2.5 font-mono text-[9px] tracking-widest text-[rgb(34,255,225)] uppercase transition hover:bg-[rgba(34,255,225,0.16)]"><Play className="h-3.5 w-3.5" />Record</button>
+          <button onClick={startRecording} disabled={countdown !== null} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[rgba(34,255,225,0.35)] bg-[rgba(34,255,225,0.08)] px-4 py-2.5 font-mono text-[9px] tracking-widest text-[rgb(34,255,225)] uppercase transition hover:bg-[rgba(34,255,225,0.16)] disabled:opacity-50"><Play className="h-3.5 w-3.5" />Record</button>
         ) : (
           <button onClick={stopRecording} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[rgba(255,90,130,0.4)] bg-[rgba(255,90,130,0.08)] px-4 py-2.5 font-mono text-[9px] tracking-widest text-[rgb(255,90,130)] uppercase transition hover:bg-[rgba(255,90,130,0.15)]"><Square className="h-3.5 w-3.5" />Stop</button>
         )}
       </div>
+
+      {countdown !== null && (
+        <div className="mt-4 flex items-center justify-center rounded-2xl border border-[rgba(255,90,210,0.3)] bg-[rgba(255,90,210,0.07)] px-5 py-4 text-center shadow-[0_0_35px_rgba(255,90,210,0.12)]">
+          <div>
+            <p className="font-mono text-[8px] tracking-[0.28em] text-white/40 uppercase">Get ready</p>
+            <p className="mt-1 font-mono text-5xl font-bold leading-none text-[rgb(255,90,210)]">{countdown}</p>
+            <p className="mt-2 font-mono text-[8px] tracking-[0.18em] text-white/40 uppercase">recording starts after 1</p>
+          </div>
+        </div>
+      )}
 
       {recording && <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-[rgb(255,90,210)] shadow-[0_0_12px_rgba(255,90,210,0.8)]" style={{ width: `${(elapsed / MAX_RECORDING_MS) * 100}%` }} /></div>}
       <p className="mt-2 font-mono text-[8px] leading-relaxed tracking-wider text-white/35 uppercase">{message}</p>
@@ -221,15 +252,15 @@ export function FSLSignRecorder({ handsRef }: { handsRef: MutableRefObject<HandS
           {dataset.signs.slice().reverse().map((sign) => (
             <div key={sign.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
               <div><p className="font-mono text-[10px] tracking-widest text-white">{sign.label}</p><p className="mt-0.5 font-mono text-[7px] text-white/35">{sign.frames.length} frames · {Math.round(sign.durationMs / 100) / 10}s</p></div>
-              <button onClick={() => deleteSign(sign.id)} disabled={recording} className="rounded-lg p-2 text-white/30 transition hover:bg-white/5 hover:text-[rgb(255,90,130)]" aria-label={`Delete ${sign.label} recording`}><Trash2 className="h-3.5 w-3.5" /></button>
+              <button onClick={() => deleteSign(sign.id)} disabled={recording || countdown !== null} className="rounded-lg p-2 text-white/30 transition hover:bg-white/5 hover:text-[rgb(255,90,130)]" aria-label={`Delete ${sign.label} recording`}><Trash2 className="h-3.5 w-3.5" /></button>
             </div>
           ))}
         </div>
       )}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={downloadDataset} disabled={!dataset.signs.length || recording} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 font-mono text-[8px] tracking-widest text-white/55 uppercase transition hover:border-white/20 hover:text-white disabled:opacity-30"><Download className="h-3.5 w-3.5" />Export for GitHub</button>
-        <button onClick={importDataset} disabled={recording} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 font-mono text-[8px] tracking-widest text-white/55 uppercase transition hover:border-white/20 hover:text-white disabled:opacity-30"><Upload className="h-3.5 w-3.5" />Import dataset</button>
+        <button onClick={downloadDataset} disabled={!dataset.signs.length || recording || countdown !== null} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 font-mono text-[8px] tracking-widest text-white/55 uppercase transition hover:border-white/20 hover:text-white disabled:opacity-30"><Download className="h-3.5 w-3.5" />Export for GitHub</button>
+        <button onClick={importDataset} disabled={recording || countdown !== null} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 font-mono text-[8px] tracking-widest text-white/55 uppercase transition hover:border-white/20 hover:text-white disabled:opacity-30"><Upload className="h-3.5 w-3.5" />Import dataset</button>
       </div>
     </div>
   );
