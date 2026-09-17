@@ -114,7 +114,10 @@ export function FlameEffect({ handsRef, enabled }: FlameEffectProps) {
         }
 
         const wrist = hand[0];
-        const palmPoints = [5, 9, 13, 17].map((index) => hand[index]).filter(Boolean);
+        const palmPoints = [5, 9, 13, 17].flatMap((index) => {
+          const point = hand[index];
+          return point ? [point] : [];
+        });
         if (!wrist || palmPoints.length < 4 || !hand[9]) {
           node.root.style.opacity = "0";
           continue;
