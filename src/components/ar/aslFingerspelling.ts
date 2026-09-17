@@ -11,7 +11,6 @@ export type ASLClassification = {
 type Features = {
   wrist: Landmark;
   tips: Landmark[];
-  pips: Landmark[];
   mcps: Landmark[];
   extended: boolean[];
   folded: boolean[];
@@ -57,7 +56,6 @@ function buildFeatures(hand: Landmark[]): Features | null {
   return {
     wrist,
     tips,
-    pips,
     mcps,
     extended,
     folded,
@@ -71,25 +69,21 @@ function buildFeatures(hand: Landmark[]): Features | null {
 }
 
 const count = (items: boolean[]) => items.filter(Boolean).length;
-const near = (value: number, target: number, tolerance: number) => Math.max(0, 1 - Math.abs(value - target) / tolerance);
 
 /**
  * Experimental static ASL fingerspelling classifier.
- * It intentionally reports a confidence rather than pretending that landmark
- * geometry alone can perfectly distinguish every ASL letter. J and Z require
- * motion, and several letters have subtle orientation differences; those are
- * handled as low-confidence/unknown until temporal training is added.
+ * Landmark geometry is useful for a prototype, but it cannot perfectly
+ * distinguish every ASL letter. J and Z are movement-based and several
+ * letters need palm-orientation details, so ambiguous poses remain unknown.
  */
 export function classifyASL(hand: Landmark[]): ASLClassification {
   const f = buildFeatures(hand);
   if (!f) return { letter: null, confidence: 0, reason: "insufficient landmarks" };
 
   const [i, m, r, p] = f.extended;
-  const [ifold, mfold, rfold, pfold] = f.folded;
   const extendedCount = count(f.extended);
   const foldedCount = count(f.folded);
 
-  // Clear, high-separation handshapes first.
   if (i && m && r && p && !f.thumbOpen) {
     return { letter: "B", confidence: 0.90, reason: "four extended fingers, thumb folded" };
   }
@@ -98,11 +92,11 @@ export function classifyASL(hand: Landmark[]): ASLClassification {
     return { letter: "W", confidence: 0.84, reason: "three adjacent fingers plus pinky extended" };
   }
 
-  if (i && m && !r && !p && f.indexMiddle < 0.22 && !f.thumbOpen) {
+  if (i && m && !r && !p && !f.thumbOpen && f.indexMiddle < 0.22) {
     return { letter: "U", confidence: 0.84, reason: "index and middle together" };
   }
 
-  if (i && m && !r && !p && f.indexMiddle > 0.25 && !f.thumbOpen) {
+  if (i && m && !r && !p && !f.thumbOpen && f.indexMiddle > 0.25) {
     return { letter: "V", confidence: 0.87, reason: "index and middle separated" };
   }
 
@@ -129,10 +123,9 @@ export function classifyASL(hand: Landmark[]): ASLClassification {
 
   if (i && m && !r && !p && f.thumbOpen) {
     const downward = f.indexDirection.y > Math.abs(f.indexDirection.x) * 0.65;
-    return { letter: downward ? "P" : "K", confidence: downward ? 0.70 : 0.73, reason: downward or upright K-family handshape" };
+    return { letter: downward ? "P" : "K", confidence: downward ? 0.70 : 0.73, reason: downward ? "downward K-family orientation" : "upright K-family handshape" };
   }
 
-  // F / O / C family.
   if (f.thumbIndex < 0.38 && m && r && p) {
     return { letter: "F", confidence: 0.94, reason: "thumb and index contact with three fingers extended" };
   }
@@ -143,7 +136,7 @@ export function classifyASL(hand: Landmark[]): ASLClassification {
 
   if (extendedCount === 0 && f.thumbIndex > 0.40 && f.thumbIndex < 0.95) {
     const thumbAcrossTips = f.thumbMiddle < 0.55;
-    return { letter: thumbAcrossTips ? "E" : "A", confidence: thumbAcrossTips ? 0.68 : 0.70, reason: "closed hand family; thumb position distinguishes A/E approximately" };
+    return { letter: thumbAcrossTips ? "E" : "A", confidence: thumbAcrossTips ? 0.68 : 0.70, reason: "closed hand family; thumb position approximately separates A/E" };
   }
 
   if (i && m && !r && !p && f.indexMiddle < 0.24) {
@@ -162,15 +155,11 @@ export function classifyASL(hand: Landmark[]): ASLClassification {
     return { letter: "S", confidence: 0.62, reason: "closed fist family" };
   }
 
-  // C is intentionally conservative because it is defined by a curved opening.
   const palmWidth = d(f.mcps[0], f.mcps[3]) / f.handSize;
-  const thumbIndexGap = f.thumbIndex;
-  if (palmWidth > 0.35 && thumbIndexGap > 0.45 && thumbIndexGap < 1.25 && foldedCount >= 2) {
+  if (palmWidth > 0.35 && f.thumbIndex > 0.45 && f.thumbIndex < 1.25 && foldedCount >= 2) {
     return { letter: "C", confidence: 0.60, reason: "curved C-family opening" };
   }
 
-  // M/N are visually close to other closed handshapes without a dedicated
-  // orientation model, so leave them unknown rather than generating bad text.
   return { letter: null, confidence: 0, reason: "ambiguous ASL handshape" };
 }
 
