@@ -27,35 +27,32 @@ function classifyFslLetter(hand: Landmark[]): FSLLetter {
   const thumbTip = hand[4];
   const indexTip = hand[8];
   const indexPip = hand[6];
+  const middleMcp = hand[9];
   const middleTip = hand[12];
   const middlePip = hand[10];
   const ringTip = hand[16];
   const ringPip = hand[14];
   const pinkyTip = hand[20];
   const pinkyPip = hand[18];
-  if (!wrist || !thumbTip || !indexTip || !indexPip || !middleTip || !middlePip || !ringTip || !ringPip || !pinkyTip || !pinkyPip) {
+  if (!wrist || !thumbTip || !indexTip || !indexPip || !middleMcp || !middleTip || !middlePip || !ringTip || !ringPip || !pinkyTip || !pinkyPip) {
     return null;
   }
 
   const extended = (tip: Landmark, pip: Landmark) =>
     Math.hypot(tip.x - wrist.x, tip.y - wrist.y) > Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
-  const folded = (tip: Landmark, pip: Landmark) =>
-    Math.hypot(tip.x - wrist.x, tip.y - wrist.y) < Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
 
   const indexExtended = extended(indexTip, indexPip);
   const middleExtended = extended(middleTip, middlePip);
   const ringExtended = extended(ringTip, ringPip);
   const pinkyExtended = extended(pinkyTip, pinkyPip);
+  const handSize = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.0001;
   const thumbIndexDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-  const handSize = Math.hypot(hand[9].x - wrist.x, hand[9].y - wrist.y) || 0.0001;
   const thumbTouchesIndex = thumbIndexDistance / handSize < 0.42;
 
   // F: thumb and index meet while middle, ring and pinky remain extended.
   if (thumbTouchesIndex && middleExtended && ringExtended && pinkyExtended) return "F";
 
-  // B: four fingers are extended together while the thumb is folded across the palm.
-  // The thumb-vs-palm check intentionally uses a relaxed geometric threshold because
-  // webcam angle and hand orientation can vary significantly.
+  // B: four fingers are extended while the thumb is folded across the palm.
   const thumbFolded =
     Math.hypot(thumbTip.x - wrist.x, thumbTip.y - wrist.y) <
     Math.hypot(indexPip.x - wrist.x, indexPip.y - wrist.y) * 1.35;
@@ -75,21 +72,11 @@ export function useHandTracking(onTwoFingerHold: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [handPresent, setHandPresent] = useState(false);
   const [swipeProgress, setSwipeProgress] = useState(0);
-  const [pointer, setPointer] = useState<{ x: number; y: number; active: boolean }>({
-    x: 0,
-    y: 0,
-    active: false,
-  });
+  const [pointer, setPointer] = useState<{ x: number; y: number; active: boolean }>({ x: 0, y: 0, active: false });
   const [pinchPulse, setPinchPulse] = useState(0);
   const [pinching, setPinching] = useState(false);
   const [fslLetter, setFslLetter] = useState<FSLLetter>(null);
-  const [twoHandTransform, setTwoHandTransform] = useState<TwoHandTransform>({
-    active: false,
-    centerX: 0,
-    centerY: 0,
-    distance: 0,
-    angle: 0,
-  });
+  const [twoHandTransform, setTwoHandTransform] = useState<TwoHandTransform>({ active: false, centerX: 0, centerY: 0, distance: 0, angle: 0 });
   const smoothRef = useRef<{ x: number; y: number } | null>(null);
   const pinchingRef = useRef(false);
   const fslCandidateRef = useRef<FSLLetter>(null);
@@ -115,10 +102,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
         numHands: 2,
       });
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, facingMode: "user" },
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: false });
       const video = videoRef.current;
       if (!video) throw new Error("Camera surface unavailable");
       video.srcObject = stream;
@@ -136,10 +120,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           return;
         }
         const lms = (result?.landmarks ?? []) as Landmark[][];
-        handsRef.current = {
-          landmarks: lms,
-          handedness: (result?.handedness ?? []).map((h) => h[0]?.categoryName ?? ""),
-        };
+        handsRef.current = { landmarks: lms, handedness: (result?.handedness ?? []).map((h) => h[0]?.categoryName ?? "") };
         setHandPresent(lms.length > 0);
 
         const getPinch = (hand: Landmark[]) => {
@@ -149,8 +130,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           const middleMcp = hand[9];
           if (!wrist || !indexTip || !thumbTip || !middleMcp) return false;
           const handSize = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.0001;
-          const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / handSize;
-          return pinchDist < 0.45;
+          return Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / handSize < 0.45;
         };
 
         if (lms.length > 0) {
@@ -174,9 +154,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
             const tx = (1 - fingerTip.x) * window.innerWidth;
             const ty = fingerTip.y * window.innerHeight;
             const prev = smoothRef.current;
-            const s = prev
-              ? { x: prev.x + (tx - prev.x) * 0.35, y: prev.y + (ty - prev.y) * 0.35 }
-              : { x: tx, y: ty };
+            const s = prev ? { x: prev.x + (tx - prev.x) * 0.35, y: prev.y + (ty - prev.y) * 0.35 } : { x: tx, y: ty };
             smoothRef.current = s;
             setPointer({ x: s.x, y: s.y, active: true });
           }
@@ -195,26 +173,16 @@ export function useHandTracking(onTwoFingerHold: () => void) {
             const tip = hand[tipIndex];
             const pip = hand[pipIndex];
             if (!tip || !pip || !wrist) return false;
-            const tipFromWrist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-            const pipFromWrist = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
-            return tipFromWrist > pipFromWrist * 1.08;
+            return Math.hypot(tip.x - wrist.x, tip.y - wrist.y) > Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
           };
-
           const isFingerFolded = (tipIndex: number, pipIndex: number) => {
             const tip = hand[tipIndex];
             const pip = hand[pipIndex];
             if (!tip || !pip || !wrist) return false;
-            const tipFromWrist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-            const pipFromWrist = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
-            return tipFromWrist < pipFromWrist * 1.08;
+            return Math.hypot(tip.x - wrist.x, tip.y - wrist.y) < Math.hypot(pip.x - wrist.x, pip.y - wrist.y) * 1.08;
           };
 
-          const twoFingerGesture =
-            isFingerExtended(8, 6) &&
-            isFingerExtended(12, 10) &&
-            isFingerFolded(16, 14) &&
-            isFingerFolded(20, 18);
-
+          const twoFingerGesture = isFingerExtended(8, 6) && isFingerExtended(12, 10) && isFingerFolded(16, 14) && isFingerFolded(20, 18);
           if (twoFingerGesture) {
             if (twoFingerStartRef.current === null) {
               twoFingerStartRef.current = now;
@@ -222,11 +190,7 @@ export function useHandTracking(onTwoFingerHold: () => void) {
             }
             const progress = Math.min(1, (now - twoFingerStartRef.current) / TWO_FINGER_HOLD_MS);
             setSwipeProgress(progress);
-            if (
-              progress >= 1 &&
-              !twoFingerTriggeredRef.current &&
-              now - lastTwoFingerTriggerRef.current > TWO_FINGER_COOLDOWN_MS
-            ) {
+            if (progress >= 1 && !twoFingerTriggeredRef.current && now - lastTwoFingerTriggerRef.current > TWO_FINGER_COOLDOWN_MS) {
               twoFingerTriggeredRef.current = true;
               lastTwoFingerTriggerRef.current = now;
               setSwipeProgress(0);
@@ -257,21 +221,9 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           const secondIndex = second[8];
           const bothPinching = getPinch(first) && getPinch(second);
           if (firstIndex && secondIndex && bothPinching) {
-            const p1 = {
-              x: (1 - firstIndex.x) * window.innerWidth,
-              y: firstIndex.y * window.innerHeight,
-            };
-            const p2 = {
-              x: (1 - secondIndex.x) * window.innerWidth,
-              y: secondIndex.y * window.innerHeight,
-            };
-            setTwoHandTransform({
-              active: true,
-              centerX: (p1.x + p2.x) / 2,
-              centerY: (p1.y + p2.y) / 2,
-              distance: Math.hypot(p2.x - p1.x, p2.y - p1.y),
-              angle: Math.atan2(p2.y - p1.y, p2.x - p1.x),
-            });
+            const p1 = { x: (1 - firstIndex.x) * window.innerWidth, y: firstIndex.y * window.innerHeight };
+            const p2 = { x: (1 - secondIndex.x) * window.innerWidth, y: secondIndex.y * window.innerHeight };
+            setTwoHandTransform({ active: true, centerX: (p1.x + p2.x) / 2, centerY: (p1.y + p2.y) / 2, distance: Math.hypot(p2.x - p1.x, p2.y - p1.y), angle: Math.atan2(p2.y - p1.y, p2.x - p1.x) });
           } else {
             setTwoHandTransform((current) => (current.active ? { ...current, active: false } : current));
           }
@@ -295,18 +247,5 @@ export function useHandTracking(onTwoFingerHold: () => void) {
     };
   }, []);
 
-  return {
-    videoRef,
-    handsRef,
-    status,
-    error,
-    handPresent,
-    swipeProgress,
-    pointer,
-    pinchPulse,
-    pinching,
-    fslLetter,
-    twoHandTransform,
-    start,
-  };
+  return { videoRef, handsRef, status, error, handPresent, swipeProgress, pointer, pinchPulse, pinching, fslLetter, twoHandTransform, start };
 }
