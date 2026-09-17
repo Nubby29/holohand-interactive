@@ -182,6 +182,9 @@ export function useHandTracking(onSwipeDown: () => void) {
           fingerTrackRef.current.length = 0;
           relTrackRef.current.length = 0;
           setSwipeProgress(0);
+          smoothRef.current = null;
+          pinchingRef.current = false;
+          setPointer((p) => (p.active ? { ...p, active: false } : p));
         }
       };
       loop();
