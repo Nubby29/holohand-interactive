@@ -62,12 +62,14 @@ function classifyFslLetter(hand: Landmark[]): FSLLetter {
   return null;
 }
 
-export function useHandTracking(onTwoFingerHold: () => void) {
+export function useHandTracking(onTwoFingerHold: () => void, onCloseGesture?: () => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const handsRef = useRef<HandState>({ landmarks: [], handedness: [] });
   const rafRef = useRef<number | null>(null);
   const swipeCbRef = useRef(onTwoFingerHold);
+  const closeCbRef = useRef(onCloseGesture);
   swipeCbRef.current = onTwoFingerHold;
+  closeCbRef.current = onCloseGesture;
 
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -134,18 +136,18 @@ export function useHandTracking(onTwoFingerHold: () => void) {
         handsRef.current = { landmarks: lms, handedness };
         setHandPresent(lms.length > 0);
 
-        // Dynamic FSL CLOSE recognition uses the user's recorded temporal landmark sequence.
-        // The recorder sets this flag so a sign is never recognized while being recorded.
+        // Dynamic FSL CLOSE recognition: two hands start apart and move inward until they meet.
+        // Keep it separate from the two-finger menu toggle so CLOSE is close-only and can never open the menu.
         if (now - lastCloseSampleRef.current >= CLOSE_SAMPLE_MS) {
           lastCloseSampleRef.current = now;
           const isRecording = document.body.dataset.fslRecording === "true";
-          if (!isRecording && lms.length > 0) {
+          if (!isRecording && lms.length >= 2 && closeCbRef.current) {
             closeSequenceRef.current.push({ landmarks: lms, handedness });
             if (closeSequenceRef.current.length > CLOSE_MAX_FRAMES) closeSequenceRef.current.shift();
 
             if (
               !closeTriggeredRef.current &&
-              closeSequenceRef.current.length >= 24 &&
+              closeSequenceRef.current.length >= 16 &&
               now - lastCloseDetectionRef.current >= CLOSE_COOLDOWN_MS
             ) {
               const score = scoreCloseSequence(closeSequenceRef.current);
@@ -154,10 +156,13 @@ export function useHandTracking(onTwoFingerHold: () => void) {
                 lastCloseDetectionRef.current = now;
                 closeSequenceRef.current = [];
                 setSwipeProgress(0);
-                swipeCbRef.current();
+                closeCbRef.current();
               }
             }
           } else if (isRecording) {
+            closeSequenceRef.current = [];
+            closeTriggeredRef.current = false;
+          } else if (lms.length < 2) {
             closeSequenceRef.current = [];
             closeTriggeredRef.current = false;
           }
