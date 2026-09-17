@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { scoreCloseSequence, type FSLMotionFrame } from "./fslCloseRecognizer";
 
 export type Landmark = { x: number; y: number; z: number };
 
@@ -82,12 +83,21 @@ export function useHandTracking(onTwoFingerHold: () => void) {
   const fslCandidateRef = useRef<FSLLetter>(null);
   const fslCandidateSinceRef = useRef(0);
 
+  const closeSequenceRef = useRef<FSLMotionFrame[]>([]);
+  const lastCloseSampleRef = useRef(0);
+  const closeTriggeredRef = useRef(false);
+  const lastCloseDetectionRef = useRef(0);
+
   const twoFingerStartRef = useRef<number | null>(null);
   const twoFingerTriggeredRef = useRef(false);
   const lastTwoFingerTriggerRef = useRef(0);
   const TWO_FINGER_HOLD_MS = 650;
   const TWO_FINGER_COOLDOWN_MS = 1200;
   const FSL_STABLE_MS = 280;
+  const CLOSE_SAMPLE_MS = 80;
+  const CLOSE_MAX_FRAMES = 55;
+  const CLOSE_THRESHOLD = 0.62;
+  const CLOSE_COOLDOWN_MS = 2500;
 
   const start = useCallback(async () => {
     if (status === "loading" || status === "ready") return;
@@ -120,8 +130,38 @@ export function useHandTracking(onTwoFingerHold: () => void) {
           return;
         }
         const lms = (result?.landmarks ?? []) as Landmark[][];
-        handsRef.current = { landmarks: lms, handedness: (result?.handedness ?? []).map((h) => h[0]?.categoryName ?? "") };
+        const handedness = (result?.handedness ?? []).map((h) => h[0]?.categoryName ?? "");
+        handsRef.current = { landmarks: lms, handedness };
         setHandPresent(lms.length > 0);
+
+        // Dynamic FSL CLOSE recognition uses the user's recorded temporal landmark sequence.
+        // The recorder sets this flag so a sign is never recognized while being recorded.
+        if (now - lastCloseSampleRef.current >= CLOSE_SAMPLE_MS) {
+          lastCloseSampleRef.current = now;
+          const isRecording = document.body.dataset.fslRecording === "true";
+          if (!isRecording && lms.length > 0) {
+            closeSequenceRef.current.push({ landmarks: lms, handedness });
+            if (closeSequenceRef.current.length > CLOSE_MAX_FRAMES) closeSequenceRef.current.shift();
+
+            if (
+              !closeTriggeredRef.current &&
+              closeSequenceRef.current.length >= 24 &&
+              now - lastCloseDetectionRef.current >= CLOSE_COOLDOWN_MS
+            ) {
+              const score = scoreCloseSequence(closeSequenceRef.current);
+              if (score >= CLOSE_THRESHOLD) {
+                closeTriggeredRef.current = true;
+                lastCloseDetectionRef.current = now;
+                closeSequenceRef.current = [];
+                setSwipeProgress(0);
+                swipeCbRef.current();
+              }
+            }
+          } else if (isRecording) {
+            closeSequenceRef.current = [];
+            closeTriggeredRef.current = false;
+          }
+        }
 
         const getPinch = (hand: Landmark[]) => {
           const wrist = hand[0];
@@ -204,6 +244,8 @@ export function useHandTracking(onTwoFingerHold: () => void) {
         } else {
           twoFingerStartRef.current = null;
           twoFingerTriggeredRef.current = false;
+          closeSequenceRef.current = [];
+          closeTriggeredRef.current = false;
           setSwipeProgress(0);
           smoothRef.current = null;
           pinchingRef.current = false;
