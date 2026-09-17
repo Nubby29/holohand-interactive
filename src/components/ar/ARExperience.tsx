@@ -27,11 +27,13 @@ export default function ARExperience() {
   const [active, setActive] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
 
+  // A downward swipe only summons the menu. Once open, it cannot dismiss the menu.
+  // Closing is intentionally handled only by pointing at the X close button.
   const handleSwipe = useCallback(() => {
     setMenuOpen((open) => {
-      if (open) sfx.close();
-      else sfx.open();
-      return !open;
+      if (open) return true;
+      sfx.open();
+      return true;
     });
     setFlash(true);
     window.setTimeout(() => setFlash(false), 700);
@@ -120,7 +122,6 @@ export default function ARExperience() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinchPulse]);
 
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <video
@@ -202,7 +203,7 @@ export default function ARExperience() {
           </div>
           <p className="mt-2 flex items-center justify-center gap-2 font-mono text-[11px] tracking-[0.3em] text-white/70 uppercase">
             <Waves className="h-3.5 w-3.5 text-[rgb(255,90,210)]" />
-            swipe down to {menuOpen ? "dismiss" : "summon"}
+            swipe down to {menuOpen ? "open" : "summon"}
           </p>
         </div>
       )}
