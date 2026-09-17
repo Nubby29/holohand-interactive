@@ -34,6 +34,7 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
   const [pressing, setPressing] = useState<string | null>(null);
   const keyRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
   const pinchLockedRef = useRef(false);
+  const pressedThisPinchRef = useRef(false);
   const hoverCandidateRef = useRef<string | null>(null);
   const hoverSinceRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -41,6 +42,19 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
   const keyMap = useMemo(() => new Map(ALL_KEYS.map((key) => [key.id, key])), []);
 
   useEffect(() => {
+    const pressKey = (id: string) => {
+      const key = keyMap.get(id);
+      if (!key) return;
+      setPressing(id);
+      setText((current) => {
+        if (key.value === "BACKSPACE") return current.slice(0, -1);
+        if (key.value === "CLEAR") return "";
+        if (current.length >= 120) return current;
+        return current + key.value;
+      });
+      window.setTimeout(() => setPressing((current) => (current === id ? null : current)), 120);
+    };
+
     const loop = () => {
       rafRef.current = requestAnimationFrame(loop);
       const hands = handsRef.current.landmarks;
@@ -50,6 +64,7 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
         setTyping(false);
         setPressing(null);
         pinchLockedRef.current = false;
+        pressedThisPinchRef.current = false;
         hoverCandidateRef.current = null;
         return;
       }
@@ -61,9 +76,10 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
       // Match the mirrored webcam pointer used by HoloHand.
       const x = (1 - index.x) * window.innerWidth;
       const y = index.y * window.innerHeight;
+      const now = performance.now();
 
-      // Use hysteresis so tiny landmark jitter cannot repeatedly toggle pinch on/off.
-      // Engage below 0.38; don't release until the fingers separate above 0.58.
+      // Hysteresis prevents landmark jitter from rapidly toggling the pinch state.
+      // Engage below 0.38; release only after the fingers separate above 0.58.
       const wasLocked = pinchLockedRef.current;
       const pinch = wasLocked ? pinchDistance < 0.58 : pinchDistance < 0.38;
       setTyping(pinch);
@@ -77,37 +93,25 @@ export function HoloKeyboardPanel({ handsRef }: { handsRef: React.MutableRefObje
 
       if (hit !== hoverCandidateRef.current) {
         hoverCandidateRef.current = hit;
-        hoverSinceRef.current = performance.now();
+        hoverSinceRef.current = now;
       }
       setHovered(hit);
 
-      // A pinch is one press. The same pinch remains locked until the fingers clearly release.
-      // The hover must also be stable briefly, preventing accidental presses while crossing keys.
       if (pinch && !wasLocked) {
         pinchLockedRef.current = true;
-        if (hit && performance.now() - hoverSinceRef.current >= 90) {
-          const key = keyMap.get(hit);
-          if (key) {
-            setPressing(hit);
-            setText((current) => {
-              if (key.value === "BACKSPACE") return current.slice(0, -1);
-              if (key.value === "CLEAR") return "";
-              if (current.length >= 120) return current;
-              return current + key.value;
-            });
-            window.setTimeout(() => setPressing((current) => (current === hit ? null : current)), 120);
-          }
-        }
+        pressedThisPinchRef.current = false;
       }
 
-      // If the pinch started before the finger entered a key, allow that same pinch
-      // to press once after the hover becomes stable, but never more than once.
-      if (pinch && pinchLockedRef.current && !wasLocked && !hit) {
-        // Nothing to do; the user must aim at a key before the next pinch.
+      // One physical pinch can produce exactly one key press. The aim must remain
+      // over the same key for 90ms so crossing a key cannot accidentally type it.
+      if (pinch && pinchLockedRef.current && !pressedThisPinchRef.current && hit && now - hoverSinceRef.current >= 90) {
+        pressedThisPinchRef.current = true;
+        pressKey(hit);
       }
 
       if (!pinch) {
         pinchLockedRef.current = false;
+        pressedThisPinchRef.current = false;
       }
     };
 
